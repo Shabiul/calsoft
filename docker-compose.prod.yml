@@ -1,0 +1,190 @@
+# Production stack for a single VPS (Hostinger KVM-2 class: 2 vCPU / 8 GB RAM / NVMe).
+# Usage: docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+# Networks: `data` is internal (no egress, nothing published); `app` has egress for Stripe/Google/SMTP.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-app-env: &app-env
+  NODE_ENV: production
+  APP_NAME: ${APP_NAME:-MeetFlow}
+  APP_URL: ${APP_URL:?set APP_URL}
+  DATABASE_URL: postgres://${POSTGRES_USER:-meetflow}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB:-meetflow}
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web: { condition: service_healthy }
+    networks: [app]
+    mem_limit: 128m
+    logging: *logging
+
+  web:
+    build: { context: ., dockerfile: Dockerfile }
+    image: meetflow-web:latest
+    restart: unless-stopped
+    env_file: [.env.production]
+    environment:
+      <<: *app-env
+      NODE_OPTIONS: --max-old-space-size=1024
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      pgbouncer: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [app, data]
+    mem_limit: 1536m
+    cpus: 1.5
+    read_only: true
+    tmpfs: [/tmp, "/app/.next/cache"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  worker:
+    build: { context: ., dockerfile: Dockerfile.worker }
+    image: meetflow-worker:latest
+    restart: unless-stopped
+    env_file: [.env.production]
+    environment:
+      <<: *app-env
+      NODE_OPTIONS: --max-old-space-size=512
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      pgbouncer: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [app, data]
+    mem_limit: 768m
+    cpus: 0.75
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # One-shot: drizzle migrations + drizzle/constraints.sql. Connects DIRECTLY to postgres (not pgbouncer).
+  migrate:
+    image: meetflow-worker:latest
+    build: { context: ., dockerfile: Dockerfile.worker }
+    command: ["npx", "tsx", "scripts/migrate.ts"]
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-meetflow}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meetflow}
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [data]
+    mem_limit: 512m
+    healthcheck: { disable: true }
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meetflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-meetflow}
+      POSTGRES_INITDB_ARGS: --data-checksums --auth-host=scram-sha-256
+    # Tuned for a ~2 GB container on an 8 GB host.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=768MB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=100
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - password_encryption=scram-sha-256
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [data]
+    mem_limit: 2g
+    shm_size: 256m
+    cpus: 1.5
+    logging: *logging
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_USER: ${POSTGRES_USER:-meetflow}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-meetflow}
+      AUTH_TYPE: scram-sha-256
+      # Transaction pooling: advisory locks must be transaction-scoped (pg_advisory_xact_lock).
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "300"
+      DEFAULT_POOL_SIZE: "20"
+      LISTEN_PORT: "5432"
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+    mem_limit: 64m
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ requires maxmemory-policy noeviction. AOF for job durability.
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --maxmemory 200mb --maxmemory-policy noeviction
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [data]
+    mem_limit: 256m
+    logging: *logging
+
+networks:
+  app: {}
+  data:
+    internal: true
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  caddy_data: {}
+  caddy_config: {}

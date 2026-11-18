@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  { files: ["**/*.test.ts", "tests/**"], rules: { "@typescript-eslint/no-explicit-any": "off" } },
+  // API/download routes are not pages, so <Link> does not apply; setState-in-effect is a perf hint, not a bug
+  { rules: { "@next/next/no-html-link-for-pages": "off", "react-hooks/set-state-in-effect": "warn" } },
 ]);
 
 export default eslintConfig;

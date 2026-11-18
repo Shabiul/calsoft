@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794901576047,
+      "tag": "0000_illegal_grey_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794901891100,
+      "tag": "0001_special_loki",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794902739291,
+      "tag": "0002_polite_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794902766661,
+      "tag": "0003_fantastic_iron_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794902948311,
+      "tag": "0004_romantic_the_call",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794995368053,
+      "tag": "0005_flawless_purple_man",
+      "breakpoints": true
+    }
+  ]
+}
