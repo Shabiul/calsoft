@@ -43,9 +43,6 @@ async function Event({ params, searchParams }: P) {
   return (
     <PublicShell brandColor={event.brandColor}>
       <PageFrame wide>
-        <div style={{ marginBottom: 12 }}>
-          <a href={`/${event.host.username}`} className="mf-muted" style={{ fontSize: 14, textDecoration: "none" }}>&larr; {event.host.name}</a>
-        </div>
         <BookingFlow event={event} prefill={prefill} />
       </PageFrame>
     </PublicShell>

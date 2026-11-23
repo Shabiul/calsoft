@@ -123,7 +123,7 @@ export function ManageClient({ view, token }: { view: BookingView; token: string
           {view.canCancel && <button type="button" className="mf-btn mf-btn-ghost" onClick={() => { setScope("occurrence"); setMode("cancel"); }}><XCircle size={16} aria-hidden /> {series ? "Cancel this session" : "Cancel meeting"}</button>}
           {series && view.canCancelSeries && <button type="button" className="mf-btn mf-btn-ghost" onClick={() => { setScope("series"); setMode("cancel"); }}><XCircle size={16} aria-hidden /> Cancel entire series</button>}
           {view.status !== "pending_confirmation" && active && <a className="mf-btn mf-btn-ghost" href={`/api/public/ics/${encodeURIComponent(token)}`}><Download size={16} aria-hidden /> Add to calendar (.ics)</a>}
-          <a className="mf-btn mf-btn-ghost" href={`/${e.host.username}/${e.slug}`}>Book another time</a>
+          <a className="mf-btn mf-btn-ghost" href={e.shortCode ? `/m/${e.shortCode}` : `/${e.host.username}/${e.slug}`}>Book another time</a>
         </div>
       )}
 

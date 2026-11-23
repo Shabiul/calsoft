@@ -43,6 +43,34 @@
       "when": 1794995368053,
       "tag": "0005_flawless_purple_man",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795257747939,
+      "tag": "0006_event_short_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795260231361,
+      "tag": "0007_notetaker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795261894207,
+      "tag": "0008_join_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795263911325,
+      "tag": "0009_notetaker_media",
+      "breakpoints": true
     }
   ]
 }

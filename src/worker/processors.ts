@@ -8,6 +8,7 @@ import { fanoutWorkflows, processExecution } from "@/server/workflows/engine";
 import { attemptInfo } from "./runtime";
 import { INTEGRATION_JOB, processIntegrationJob } from "@/server/integrations/booking-sync";
 import { syncAllDue } from "@/server/integrations/sync";
+import { collectNotes, NOTETAKER_COLLECT_JOB } from "@/server/notetaker";
 import { reconcilePayments, refundForCancelledBooking } from "@/server/payments/service";
 
 /** Cancelled bookings with a paid payment are refunded per policy right away (reconcile sweeps any misses). */
@@ -77,6 +78,7 @@ export async function processScheduler(job: Job) {
     case SCHEDULER_JOBS.calendarSync.id: return syncAllDue();
     case SCHEDULER_JOBS.paymentsReconcile.id: return reconcilePayments();
     case PAYMENT_REFUND_JOB: return refundForCancelledBooking((job.data as { bookingId: string }).bookingId);
+    case NOTETAKER_COLLECT_JOB: return collectNotes(job.data as { bookingId: string; botId: string }, attemptInfo(job));
     case INTEGRATION_JOB: return processIntegrationJob(job.data as { bookingId: string; attempt?: number });
     default: throw new Error(`unknown scheduler job ${job.name}`);
   }

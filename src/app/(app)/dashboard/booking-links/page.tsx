@@ -29,7 +29,7 @@ async function Content() {
     ...personal.map((e) => ({ e, group: "Personal", prefix: user.username })),
     ...orgLists.flatMap((list, i) => list.map((e) => ({ e, group: orgs[i].name, prefix: orgs[i].slug }))),
   ].map(({ e, group, prefix }) => ({
-    id: e.id, title: e.title, durationMinutes: e.durationMinutes, color: e.color, group, path: prefix ? `/${prefix}/${e.slug}` : null, isActive: e.isActive, isOneOff: e.isOneOff,
+    id: e.id, title: e.title, durationMinutes: e.durationMinutes, color: e.color, group, path: e.shortCode ? `/m/${e.shortCode}` : prefix ? `/${prefix}/${e.slug}` : null, embedPath: prefix ? `/${prefix}/${e.slug}` : null, isActive: e.isActive, isOneOff: e.isOneOff,
   }));
   const origin = process.env.APP_URL?.replace(/\/$/, "") ?? "";
   return <BookingLinks items={items} origin={origin} hasUsername={!!user.username} />;

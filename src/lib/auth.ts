@@ -24,7 +24,8 @@ export const auth = betterAuth({
   appName: APP_NAME,
   baseURL,
   secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: [baseURL, ...(process.env.NODE_ENV !== "production" ? ["http://localhost:3101", "http://localhost:3000"] : [])],
+  // dev: Next falls back to another port when 3000 is busy, so trust any localhost port; production trusts only the configured origin
+  trustedOrigins: [baseURL, ...(process.env.NODE_ENV !== "production" ? ["http://localhost:*", "http://127.0.0.1:*"] : [])],
   database: drizzleAdapter(db, {
     provider: "pg",
     schema: {

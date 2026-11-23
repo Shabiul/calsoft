@@ -1,6 +1,7 @@
+import { maskedMeetingUrl } from "@/server/public/join";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/server/db";
-import { bookings, eventTypes, invitees, payments, users } from "@/server/db/schema";
+import { bookingPageSettings, bookings, eventTypes, inviteeAnswers, invitees, payments, users } from "@/server/db/schema";
 import type { BookingContext } from "./types";
 
 export async function loadBookingContext(bookingId: string): Promise<BookingContext | null> {
@@ -17,6 +18,9 @@ export async function loadBookingContext(bookingId: string): Promise<BookingCont
     .orderBy(asc(invitees.createdAt)).limit(1);
   const fallbackInv = inv ?? (await db.select().from(invitees).where(eq(invitees.bookingId, bookingId)).orderBy(asc(invitees.createdAt)).limit(1))[0];
   if (!fallbackInv) return null;
+  const allInv = await db.select({ id: invitees.id, name: invitees.name, email: invitees.email }).from(invitees)
+    .where(and(eq(invitees.bookingId, bookingId), isNull(invitees.cancelledAt))).orderBy(asc(invitees.createdAt));
+  const answers = fallbackInv ? await db.select({ question: inviteeAnswers.question, answer: inviteeAnswers.answer }).from(inviteeAnswers).where(eq(inviteeAnswers.inviteeId, (allInv[0] ?? fallbackInv).id)) : [];
   let series: BookingContext["series"] = null;
   if (row.b.seriesId) {
     const rows = await db.select({ startsAt: bookings.startsAt, endsAt: bookings.endsAt, status: bookings.status }).from(bookings)
@@ -24,20 +28,24 @@ export async function loadBookingContext(bookingId: string): Promise<BookingCont
       .orderBy(asc(bookings.startsAt));
     series = rows;
   }
+  const [page] = await db.select().from(bookingPageSettings).where(eq(bookingPageSettings.eventTypeId, row.e.id)).limit(1);
   const [pay] = await db.select().from(payments).where(eq(payments.bookingId, bookingId)).orderBy(desc(payments.createdAt)).limit(1);
   return {
     booking: {
       id: row.b.id, status: row.b.status, startsAt: row.b.startsAt, endsAt: row.b.endsAt,
       inviteeTimeZone: row.b.inviteeTimeZone, hostTimeZone: row.b.hostTimeZone,
-      meetingUrl: row.b.meetingUrl, locationType: row.b.locationType,
+      meetingUrl: row.b.meetingUrl, joinUrl: maskedMeetingUrl(row.b), locationType: row.b.locationType,
       cancelReason: row.b.cancelReason, cancelledBy: row.b.cancelledBy, seriesId: row.b.seriesId,
     },
     eventType: {
-      id: row.e.id, title: row.e.title, description: row.e.description, locationValue: row.e.locationValue,
+      id: row.e.id, durationMinutes: row.e.durationMinutes, title: row.e.title, description: row.e.description, locationValue: row.e.locationValue,
       cancellationPolicy: row.e.cancellationPolicy, priceAmount: row.e.priceAmount, priceCurrency: row.e.priceCurrency,
     },
     host: { id: row.h.id, name: row.h.name, email: row.h.email },
     invitee: { name: fallbackInv.name, email: fallbackInv.email },
+    attendees: allInv.map((a) => ({ name: a.name, email: a.email })),
+    answers,
+    branding: page ? { brandColor: page.brandColor, logoUrl: page.logoUrl, headline: page.headline, successMessage: page.successMessage } : null,
     series,
     payment: pay ? { amount: pay.amount, currency: pay.currency, status: pay.status } : null,
   };

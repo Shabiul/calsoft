@@ -132,6 +132,8 @@ export const eventTypes = pgTable("event_type", {
   ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
   organizationId: uuid("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
   slug: text("slug").notNull(), title: text("title").notNull(), description: text("description"),
+  /** Short public code for the locked share link /m/<code> (hides username and slug). */
+  shortCode: text("short_code").unique(),
   kind: eventKind("kind").notNull().default("one_on_one"),
   durationMinutes: integer("duration_minutes").notNull().default(30),
   locationType: locationType("location_type").notNull().default("google_meet"),
@@ -145,6 +147,8 @@ export const eventTypes = pgTable("event_type", {
   capacity: integer("capacity").notNull().default(1), // group events
   scheduleId: uuid("schedule_id").references(() => availabilitySchedules.id, { onDelete: "set null" }),
   requiresConfirmation: boolean("requires_confirmation").notNull().default(false),
+  /** A notetaker bot (Recall.ai) joins the meeting, transcribes it and posts notes + an AI summary afterwards. */
+  notetakerEnabled: boolean("notetaker_enabled").notNull().default(false),
   cancellationPolicy: text("cancellation_policy"), allowReschedule: boolean("allow_reschedule").notNull().default(true),
   minCancelNoticeMinutes: integer("min_cancel_notice_minutes").notNull().default(0),
   color: text("color"), redirectUrl: text("redirect_url"),
@@ -199,6 +203,8 @@ export const bookings = pgTable("booking", {
   status: bookingStatus("status").notNull().default("confirmed"),
   inviteeTimeZone: text("invitee_time_zone").notNull(), hostTimeZone: text("host_time_zone").notNull(),
   locationType: locationType("location_type"), meetingUrl: text("meeting_url"),
+  /** Public join link /j/<code> that redirects to meetingUrl, so invitees see the app's domain, not the raw Meet URL. */
+  joinCode: text("join_code").notNull().unique().default(sql`substr(md5(random()::text || clock_timestamp()::text), 1, 10)`),
   externalEventIds: jsonb("external_event_ids").$type<Record<string, string>>().notNull().default({}),
   idempotencyKey: text("idempotency_key").unique(),
   rescheduledFromId: uuid("rescheduled_from_id"),
@@ -392,4 +398,25 @@ export const platformSettings = pgTable("platform_setting", {
   value: jsonb("value").$type<unknown>().notNull(),
   updatedBy: text("updated_by"),
   updatedAt: updatedAt(),
+});
+
+/** Shared meeting notes (one per booking): written by host/attendees via /notes/<token>; transcript + summary filled by the notetaker. */
+export const meetingNotes = pgTable("meeting_note", {
+  bookingId: uuid("booking_id").primaryKey().references(() => bookings.id, { onDelete: "cascade" }),
+  content: text("content").notNull().default(""),
+  transcript: text("transcript"),
+  summary: text("summary"),
+  /** scheduled | done | failed (null = no notetaker) */
+  botStatus: text("bot_status"),
+  /** Recall bot id: recordings are fetched from Recall on demand (their download URLs expire). */
+  botId: text("bot_id"),
+  /** Who attended: [{ name, email, joinedAt, leftAt, seconds }] (from Recall participant events). */
+  attendance: jsonb("attendance").$type<{ name: string; email: string | null; joinedAt: string; leftAt: string | null; seconds: number }[]>(),
+  /** Meeting chat: [{ name, at (ISO), text }]. */
+  chat: jsonb("chat").$type<{ name: string; at: string; text: string }[]>(),
+  /** AI action items: [{ owner, ownerEmail, task, due }]. */
+  actionItems: jsonb("action_items").$type<{ owner: string; ownerEmail: string | null; task: string; due: string | null }[]>(),
+  /** Recall deletes the audio/video after this time (retention). */
+  recordingExpiresAt: timestamp("recording_expires_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

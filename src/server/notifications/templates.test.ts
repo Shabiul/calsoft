@@ -54,9 +54,9 @@ describe("templates", () => {
     expect(out.text).toContain("3. Tuesday, January 29, 2030 at 10:00 AM");
     expect(renderNotification("reminder", { ...ctx, series }, "invitee").text).not.toContain("recurring series");
   });
-  it("attaches ICS to confirmation/host/reschedule and CANCEL to cancellation", () => {
+  it("attaches ICS to invitee confirmation/reschedule and CANCEL to cancellation, but not to the host (they already have the event; avoids Gmail \"Unable to load event\")", () => {
     expect(renderNotification("confirmation", ctx, "invitee").attachments?.[0].content).toContain("METHOD:REQUEST");
-    expect(renderNotification("host_notification", ctx, "host").attachments).toHaveLength(1);
+    expect(renderNotification("host_notification", ctx, "host").attachments).toBeUndefined();
     expect(renderNotification("reschedule", ctx, "invitee").attachments).toHaveLength(1);
     const c = renderNotification("cancellation", ctx, "invitee").attachments?.[0].content;
     expect(c).toContain("METHOD:CANCEL");
@@ -95,4 +95,92 @@ describe("planReminders", () => {
     expect(p[0].sendAt.toISOString()).toBe("2030-01-01T01:00:00.000Z");
   });
   it("returns nothing for a booking starting immediately", () => expect(planReminders(now, [60], now)).toEqual([]));
+});
+
+describe("booking page branding", () => {
+  const branded: BookingContext = { ...ctx, branding: { brandColor: "#6366f1", logoUrl: "https://cdn.example.com/logo.png", headline: null, successMessage: "See you <soon>!" } };
+  it("applies brand colour, logo and the confirmation message to the invitee confirmation", () => {
+    const m = renderNotification("confirmation", branded, "invitee");
+    expect(m.html).toContain("#6366f1");
+    expect(m.html).toContain('src="https://cdn.example.com/logo.png"');
+    expect(m.html).toContain("See you &lt;soon&gt;!");
+    expect(m.text).toContain("See you <soon>!");
+  });
+  it("does not show the confirmation message to the host or in other emails", () => {
+    expect(renderNotification("host_notification", branded, "host").html).not.toContain("See you");
+    expect(renderNotification("reminder", branded, "invitee", { minutesBefore: 60 }).html).not.toContain("See you");
+  });
+  it("ignores invalid colours and non-https logos", () => {
+    const bad = { ...ctx, branding: { brandColor: "red;x", logoUrl: "javascript:alert(1)", headline: null, successMessage: null } };
+    const m = renderNotification("confirmation", bad, "invitee");
+    expect(m.html).toContain("#4f46e5");
+    expect(m.html).not.toContain("javascript:");
+    expect(m.html).toContain("/email-logo.png"); // falls back to the app mark
+  });
+});
+
+describe("host notification layout", () => {
+  it("shows a clickable meeting link and Join button but no manage link", () => {
+    const m = renderNotification("host_notification", ctx, "host");
+    expect(m.html).toContain('href="https://meet.example.com/x"');
+    expect(m.html).toContain("Join meeting");
+    expect(m.html).not.toContain("Manage booking");
+    expect(m.text).toContain("https://meet.example.com/x");
+  });
+});
+
+describe("event details", () => {
+  const full: BookingContext = {
+    ...ctx,
+    eventType: { ...ctx.eventType, durationMinutes: 90, description: "Agenda line" },
+    attendees: [{ name: "Eve", email: "eve@example.com" }, { name: "Guest", email: "guest@example.com" }],
+    answers: [{ question: "Topic", answer: "Roadmap" }],
+  };
+  it("shows duration, host, every attendee and the description to the invitee", () => {
+    const m = renderNotification("confirmation", full, "invitee");
+    expect(m.text).toContain("Duration: 1 hour 30 minutes");
+    expect(m.text).toContain("Host:");
+    expect(m.text).toContain("guest@example.com");
+    expect(m.text).toContain("Agenda line");
+    expect(m.text).not.toContain("Roadmap");
+  });
+  it("also shows the invitee's answers to the host", () => {
+    const m = renderNotification("host_notification", full, "host");
+    expect(m.text).toContain("Topic: Roadmap");
+    expect(m.text).toContain("eve@example.com");
+  });
+});
+
+describe("email format", () => {
+  const withPeople: BookingContext = { ...ctx, attendees: [{ name: "Eve", email: "eve@example.com" }, { name: "Guest", email: "guest@example.com" }] };
+  it("labels the event row Agenda and shows people without angle brackets", () => {
+    const m = renderNotification("confirmation", withPeople, "invitee");
+    expect(m.text).toContain("Agenda:");
+    expect(m.text).not.toContain("What:");
+    expect(m.text).not.toMatch(/<[^>\s]+@/);
+    expect(m.html).not.toContain("&lt;eve@example.com&gt;");
+    expect(m.html).toContain('href="mailto:eve@example.com"');
+  });
+  it("gives invitees and attendees an Accept button that opens Google Calendar with the Meet link", () => {
+    for (const kind of ["confirmation", "approved", "reschedule"] as const) {
+      const m = renderNotification(kind, ctx, "invitee");
+      expect(m.html).toContain("Accept &amp; add to calendar");
+      expect(m.html).toContain("https://calendar.google.com/calendar/render?action=TEMPLATE");
+      const href = /href="(https:\/\/calendar\.google\.com[^"]+)"/.exec(m.html)![1].replace(/&amp;/g, "&");
+      expect(new URL(href).searchParams.get("location")).toBe("https://meet.example.com/x");
+      expect(m.html).toContain("outlook.live.com");
+    }
+  });
+  it("does not show Accept to the host, or in cancellation/reminder emails", () => {
+    expect(renderNotification("host_notification", ctx, "host").html).not.toContain("Accept");
+    expect(renderNotification("cancellation", ctx, "invitee").html).not.toContain("Accept");
+    expect(renderNotification("reminder", ctx, "invitee", { minutesBefore: 60 }).html).not.toContain("Accept");
+  });
+  it("falls back to a text wordmark when the logo URL is not a direct image", () => {
+    const page = { ...ctx, branding: { brandColor: null, logoUrl: "https://in.pinterest.com/pin/123/", headline: null, successMessage: null } };
+    const m = renderNotification("confirmation", page, "invitee");
+    expect(m.html).not.toContain("pinterest");
+    expect(m.html).toContain("/email-logo.png");
+    expect(m.html).toContain("MeetFlow");
+  });
 });

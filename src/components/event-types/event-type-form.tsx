@@ -23,7 +23,7 @@ const FIELD_TAB: Record<string, string> = {
   title: "details", slug: "details", description: "details", kind: "details", durationMinutes: "details", locationType: "details", locationValue: "details", capacity: "details", color: "details",
   bufferBeforeMinutes: "scheduling", bufferAfterMinutes: "scheduling", minNoticeMinutes: "scheduling", maxHorizonDays: "scheduling", slotIntervalMinutes: "scheduling",
   dailyLimit: "scheduling", weeklyLimit: "scheduling", scheduleId: "scheduling", hosts: "hosts", questions: "questions", pageSettings: "page",
-  requiresConfirmation: "advanced", cancellationPolicy: "advanced", minCancelNoticeMinutes: "advanced", redirectUrl: "advanced", priceAmount: "advanced",
+  requiresConfirmation: "advanced", notetakerEnabled: "advanced", cancellationPolicy: "advanced", minCancelNoticeMinutes: "advanced", redirectUrl: "advanced", priceAmount: "advanced",
   priceCurrency: "advanced", paymentProvider: "advanced", reminders: "advanced", recurrence: "advanced",
 };
 const REMINDER_PRESETS = [{ m: 10, l: "10 minutes" }, { m: 30, l: "30 minutes" }, { m: 60, l: "1 hour" }, { m: 180, l: "3 hours" }, { m: 1440, l: "1 day" }, { m: 2880, l: "2 days" }, { m: 10080, l: "1 week" }];
@@ -60,7 +60,7 @@ export function EventTypeForm({ mode, eventTypeId, initial, currentUserId, organ
       durationMinutes: v.durationMinutes ?? 0, locationType: v.locationType, locationValue: LOCATIONS_NEEDING_VALUE.includes(v.locationType) ? clean(v.locationValue) : null,
       bufferBeforeMinutes: v.bufferBeforeMinutes ?? 0, bufferAfterMinutes: v.bufferAfterMinutes ?? 0, minNoticeMinutes: v.minNoticeMinutes ?? 0,
       maxHorizonDays: v.maxHorizonDays ?? 60, slotIntervalMinutes: v.slotIntervalMinutes, dailyLimit: v.dailyLimit, weeklyLimit: v.weeklyLimit,
-      capacity: v.kind === "group" ? (v.capacity ?? 0) : 1, scheduleId: v.scheduleId, requiresConfirmation: v.requiresConfirmation,
+      capacity: v.kind === "group" ? (v.capacity ?? 0) : 1, scheduleId: v.scheduleId, requiresConfirmation: v.requiresConfirmation, notetakerEnabled: v.notetakerEnabled,
       cancellationPolicy: clean(v.cancellationPolicy), allowReschedule: v.allowReschedule, minCancelNoticeMinutes: v.minCancelNoticeMinutes ?? 0,
       color: clean(v.color), redirectUrl: clean(v.redirectUrl),
       priceAmount: priceNum != null && Number.isFinite(priceNum) ? priceNum : null, priceCurrency: clean(v.priceCurrency), paymentProvider: v.paymentProvider,
@@ -263,6 +263,7 @@ export function EventTypeForm({ mode, eventTypeId, initial, currentUserId, organ
         <TabsContent value="advanced" className="space-y-4 pt-4">
           <Section title="Confirmation and policies">
             <ToggleRow id="confirm" label="Require host confirmation" hint="Bookings stay pending until you approve them." checked={v.requiresConfirmation} onChange={(c) => set("requiresConfirmation", c)} />
+            <ToggleRow id="notetaker" label="Notetaker" hint="A notetaker bot joins the video call and records audio, video, attendance and chat. Afterwards everyone gets the transcript, an AI summary and their own action items. Invitees are told on the booking page and in the meeting chat." checked={v.notetakerEnabled} onChange={(c) => set("notetakerEnabled", c)} />
             <ToggleRow id="resched" label="Allow invitees to reschedule" checked={v.allowReschedule} onChange={(c) => set("allowReschedule", c)} />
             <Field label="Minimum notice to cancel/reschedule (minutes)" htmlFor="cnotice" error={err("minCancelNoticeMinutes")}>
               <NumberInput id="cnotice" min={0} value={v.minCancelNoticeMinutes} onChange={(n) => set("minCancelNoticeMinutes", n)} />

@@ -21,6 +21,7 @@ const base = (over: Record<string, unknown> = {}) => ({
 const asErr = async (p: Promise<unknown>) => { try { await p; } catch (e) { return e as AppError; } throw new Error("expected rejection"); };
 
 beforeAll(async () => {
+  process.env.ENFORCE_PLAN_LIMITS = "true"; // these tests cover enforcement, which is off by default
   for (const [k, id] of Object.entries(U)) {
     await db.insert(schema.users).values({ id, name: `User ${k}`, email: `${id}@test.local` });
   }

@@ -8,6 +8,8 @@ import { isAppError } from "@/server/errors";
 import { countScheduled, getBookingDetail, getFilterOptions, listScheduled, type ScheduledTab } from "@/server/services/scheduled";
 import { ScheduledFilters } from "@/components/scheduled/filters";
 import { BookingDrawer } from "@/components/scheduled/booking-drawer";
+import { notesUrl } from "@/server/notetaker";
+import { ScheduleMeetingDialog } from "@/components/scheduled/schedule-meeting-dialog";
 
 export const metadata = { title: "Scheduled events" };
 
@@ -22,7 +24,6 @@ const VARIANT: Record<string, "success" | "warning" | "destructive" | "secondary
 export default function ScheduledPage({ searchParams }: { searchParams: SP }) {
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <PageHeader title="Scheduled events" description="Meetings booked with you and your teams." />
       <Suspense fallback={<div className="space-y-3"><Skeleton className="h-10" /><Skeleton className="h-20" /><Skeleton className="h-20" /></div>}>
         <Content searchParams={searchParams} />
       </Suspense>
@@ -57,7 +58,7 @@ async function Content({ searchParams }: { searchParams: SP }) {
   const drawer = d ? (
     <BookingDrawer timeZone={tz} detail={{
       id: d.id, status: d.status, startsAt: d.startsAt.toISOString(), endsAt: d.endsAt.toISOString(), eventTitle: d.eventTitle, hostNames: d.hostNames,
-      organizationName: d.organizationName, inviteeTimeZone: d.inviteeTimeZone, meetingUrl: d.meetingUrl, hostNotes: d.hostNotes,
+      organizationName: d.organizationName, inviteeTimeZone: d.inviteeTimeZone, meetingUrl: d.meetingUrl, notesUrl: notesUrl(d.id), hostNotes: d.hostNotes,
       cancelReason: d.cancelReason, cancelledBy: d.cancelledBy, invitees: d.invitees, answers: d.answers,
       timeline: d.timeline.map((t) => ({ ...t, at: t.at.toISOString() })),
       canCancel: d.canCancel, canReschedule: d.canReschedule, canMark: d.canMark, rescheduledFromId: d.rescheduledFromId, canDecide: d.canDecide, series: d.series,
@@ -66,6 +67,8 @@ async function Content({ searchParams }: { searchParams: SP }) {
 
   return (
     <>
+      <PageHeader title="Scheduled events" description="Meetings booked with you and your teams."
+        actions={<ScheduleMeetingDialog events={options.events} timeZone={tz} />} />
       <nav aria-label="Scheduled events tabs" className="mb-4 flex gap-1 border-b">
         {TABS.map((t) => (
           <Link key={t.key} href={href({ tab: t.key, page: undefined, b: undefined })} aria-current={tab === t.key ? "page" : undefined}

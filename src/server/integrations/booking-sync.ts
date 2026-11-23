@@ -20,6 +20,8 @@ import { ProviderError } from "./http";
 import { withCalendarToken } from "./tokens";
 import { createZoomMeeting, deleteZoomMeeting, getZoomConnection, passthroughLocation, updateZoomMeeting } from "./video";
 import type { EventInput } from "./types";
+import { joinLink } from "@/server/public/join";
+import { markBotScheduled, createBot, deleteBot, notesUrl, notetakerConfigured, scheduleCollect } from "@/server/notetaker";
 
 const { bookings, bookingEvents, calendars, connectedCalendars, eventTypes, invitees, users } = schema;
 
@@ -81,6 +83,8 @@ async function teardown(bookingId: string, hostUserId: string, ids: Ids, failure
       } else if (key === "zoom") {
         const zc = await getZoomConnection(hostUserId);
         if (zc) await deleteZoomMeeting(zc.id, ids[key]);
+      } else if (key === "recall") {
+        await deleteBot(ids[key]);
       }
       await patchIds(bookingId, {}, [key]);
       delete ids[key];
@@ -102,7 +106,17 @@ async function upsert(bookingId: string, ids: Ids, failures: SyncFailure[], chan
   const first = invs[0];
   const locType = b.locationType ?? et?.locationType ?? null;
   const title = `${et?.title ?? "Meeting"}${first ? ` with ${first.name}` : ""}`;
-  const description = [et?.description, first ? `Invitee: ${first.name} <${first.email}>` : null, host ? `Host: ${host.name}` : null, "Booked via MeetFlow"].filter(Boolean).join("\n");
+  const notes = notesUrl(bookingId);
+  const description = [
+    `Agenda: ${et?.title ?? "Meeting"}`,
+    et?.description?.trim() || null,
+    host ? `Host: ${host.name} (${host.email})` : null,
+    invs.length ? `Attendees:\n${invs.map((i) => `- ${i.name} (${i.email})`).join("\n")}` : null,
+    ["google_meet", "zoom", "teams", "custom_url"].includes(locType ?? "") ? `Join the meeting: ${joinLink(b.joinCode)}` : null,
+    notes ? `Meeting notes: ${notes}` : null,
+    et?.notetakerEnabled ? "A notetaker will join to record and transcribe this meeting." : null,
+    `Booked via ${process.env.APP_NAME ?? "MeetFlow"}`,
+  ].filter(Boolean).join("\n\n");
   const pass = passthroughLocation(locType, et?.locationValue, first?.phone);
   let meetingUrl: string | undefined = pass.meetingUrl;
   const sig = sha256(JSON.stringify([b.startsAt.toISOString(), b.endsAt.toISOString(), title, locType, et?.locationValue ?? null, first?.email ?? null]));
@@ -172,6 +186,27 @@ async function upsert(bookingId: string, ids: Ids, failures: SyncFailure[], chan
         await db.update(bookings).set({ meetingUrl, updatedAt: new Date() }).where(eq(bookings.id, bookingId));
       }
     } catch (e) { failures.push(toFailure(step, e)); }
+  }
+
+  // 3) Notetaker bot (needs the final meeting link; a new time or link replaces the bot)
+  const joinUrl = meetingUrl ?? b.meetingUrl;
+  if (et?.notetakerEnabled && notetakerConfigured() && joinUrl && b.endsAt > new Date()) {
+    try {
+      const want = `${b.startsAt.toISOString()}|${joinUrl}`;
+      if (ids.recall && ids.recall_at !== want) {
+        await deleteBot(ids.recall);
+        await patchIds(bookingId, {}, ["recall", "recall_at"]);
+        delete ids.recall; delete ids.recall_at;
+      }
+      if (!ids.recall) {
+        const botId = await createBot(bookingId, joinUrl, b.startsAt);
+        ids.recall = botId; ids.recall_at = want;
+        await patchIds(bookingId, { recall: botId, recall_at: want });
+        await markBotScheduled(bookingId, botId);
+        await scheduleCollect(bookingId, botId, b.endsAt);
+        changed.push("created:recall");
+      }
+    } catch (e) { failures.push(toFailure("notetaker", e)); }
   }
 
   if (!failures.length && sigChanged) { await patchIds(bookingId, { sig }); ids.sig = sig; }

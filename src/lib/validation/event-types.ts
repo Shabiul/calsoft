@@ -113,6 +113,7 @@ export const eventTypeInputSchema = z
     capacity: z.number().int().min(1).max(1000).default(1),
     scheduleId: z.string().uuid().nullable().optional(),
     requiresConfirmation: z.boolean().default(false),
+    notetakerEnabled: z.boolean().default(false),
     cancellationPolicy: z.string().trim().max(2000).nullable().optional(),
     allowReschedule: z.boolean().default(true),
     minCancelNoticeMinutes: z.number().int().min(0).max(60 * 24 * 30).default(0),

@@ -40,7 +40,7 @@ async function Content({ searchParams }: { searchParams: SP }) {
   const prefix = org ? org.slug : user.username;
   const rows: EventTypeListRow[] = items.map((e) => ({
     id: e.id, title: e.title, slug: e.slug, kind: e.kind, durationMinutes: e.durationMinutes, color: e.color, isActive: e.isActive, isOneOff: e.isOneOff,
-    archived: !!e.archivedAt, hostCount: e.hostCount, priceLabel: money(e.priceAmount, e.priceCurrency), publicPath: prefix ? `/${prefix}/${e.slug}` : null,
+    archived: !!e.archivedAt, hostCount: e.hostCount, priceLabel: money(e.priceAmount, e.priceCurrency), publicPath: e.shortCode ? `/m/${e.shortCode}` : prefix ? `/${prefix}/${e.slug}` : null,
   }));
   const origin = process.env.APP_URL?.replace(/\/$/, "") ?? "";
   const canCreate = !org || org.role !== "member";

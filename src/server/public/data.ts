@@ -2,6 +2,7 @@
  * Read-side loaders for the public booking pages. Everything returned here is safe to expose publicly:
  * no emails of hosts, no internal ids other than event/booking ids needed by the client.
  */
+import { maskedMeetingUrl } from "@/server/public/join";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
@@ -14,6 +15,8 @@ export type PublicQuestion = { id: string; label: string; type: string; options:
 export type PublicEvent = {
   id: string;
   slug: string;
+  /** Locked share code (/m/<code>); null for events created before short codes. */
+  shortCode: string | null;
   title: string;
   description: string | null;
   kind: string;
@@ -24,6 +27,8 @@ export type PublicEvent = {
   priceAmount: number | null;
   priceCurrency: string | null;
   requiresConfirmation: boolean;
+  /** A notetaker bot will join and transcribe the meeting (disclosed to the invitee). */
+  notetaker: boolean;
   /** Recurring event: invitees book `count` sessions at once (group events never recur). */
   recurrence: { count: number; interval: "week" | "month" } | null;
   cancellationPolicy: string | null;
@@ -75,11 +80,12 @@ async function toPublic(e: EventRow, owner: HostLike): Promise<PublicEvent> {
     db.query.bookingPageSettings.findFirst({ where: eq(bookingPageSettings.eventTypeId, e.id) }),
   ]);
   return {
-    id: e.id, slug: e.slug, title: e.title, description: e.description, kind: e.kind,
+    id: e.id, slug: e.slug, shortCode: e.shortCode, title: e.title, description: e.description, kind: e.kind,
     durationMinutes: e.durationMinutes, locationType: e.locationType,
     locationAddress: e.locationType === "in_person" ? e.locationValue : null,
     priceAmount: e.priceAmount, priceCurrency: e.priceCurrency,
     requiresConfirmation: e.requiresConfirmation,
+    notetaker: e.notetakerEnabled,
     recurrence: e.kind !== "group" && e.recurrence && e.recurrence.count >= 2 ? e.recurrence : null,
     cancellationPolicy: e.cancellationPolicy,
     allowReschedule: e.allowReschedule, minCancelNoticeMinutes: e.minCancelNoticeMinutes,
@@ -127,6 +133,13 @@ export async function loadEvent(username: string, slug: string): Promise<PublicE
   return toPublic(e, u ?? orgAsHost(org!));
 }
 
+/** Resolves a bookable event from its short share code (/m/<code>). */
+export async function loadEventByShortCode(code: string): Promise<PublicEvent | null> {
+  if (!/^[A-Za-z0-9]{6,16}$/.test(code)) return null;
+  const e = await db.query.eventTypes.findFirst({ where: and(eq(eventTypes.shortCode, code), isNull(eventTypes.deletedAt)), columns: { id: true } });
+  return e ? loadEventById(e.id) : null;
+}
+
 /** Used by the JSON API: resolves a bookable event by id (owner must be active). */
 export async function loadEventById(id: string): Promise<PublicEvent | null> {
   const e = await db.query.eventTypes.findFirst({ where: and(eq(eventTypes.id, id), isNull(eventTypes.deletedAt)) });
@@ -160,6 +173,7 @@ export type BookingView = {
   inviteeTimeZone: string;
   invitee: { name: string; email: string; phone: string | null } | null;
   meetingUrl: string | null;
+  calendarMeetingUrl: string | null;
   locationType: string | null;
   cancelReason: string | null;
   cancelledAt: string | null;
@@ -241,7 +255,9 @@ export async function loadBookingView(token: string): Promise<BookingView | null
     id: b.id, status: b.status, startsAt: b.startsAt.toISOString(), endsAt: b.endsAt.toISOString(),
     inviteeTimeZone: b.inviteeTimeZone,
     invitee: inv ? { name: inv.name, email: inv.email, phone: inv.phone } : null,
-    meetingUrl: b.status === "confirmed" ? safeHttpUrl(b.meetingUrl) : null,
+    meetingUrl: b.status === "confirmed" ? safeHttpUrl(maskedMeetingUrl(b)) : null, // invitees see /j/<code>, not the raw Meet URL
+    /** Real meeting URL, only for adding the event to a calendar (Google/Outlook/.ics). */
+    calendarMeetingUrl: b.status === "confirmed" ? safeHttpUrl(b.meetingUrl) : null,
     locationType: b.locationType ?? ev.locationType,
     cancelReason: b.cancelReason, cancelledAt: b.cancelledAt?.toISOString() ?? null, cancelledBy: b.cancelledBy,
     event, history, ...state, series, canCancelSeries,

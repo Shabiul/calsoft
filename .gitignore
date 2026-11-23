@@ -46,3 +46,10 @@ next-env.d.ts
 
 # uploads
 /storage/
+
+.vercel
+.env*
+
+# partial browser downloads
+*.crdownload
+!.env.example

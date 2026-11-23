@@ -5,7 +5,7 @@ export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
   "verify", "settings", "account", "profile", "billing", "pricing", "about", "contact", "contacts", "help", "support",
   "docs", "blog", "legal", "terms", "privacy", "security", "status", "team", "teams", "org", "organization", "organizations",
   "workflows", "routing", "routing-forms", "integrations", "analytics", "availability", "event-types", "events",
-  "scheduled-events", "booking-links", "r", "s", "u", "www", "mail", "email", "root", "system", "null", "undefined",
+  "scheduled-events", "booking-links", "j", "m", "notes", "r", "s", "u", "www", "mail", "email", "root", "system", "null", "undefined",
   "public", "static", "assets", "_next", "favicon.ico", "robots.txt", "sitemap.xml", "webhooks", "webhook", "oauth",
   "callback", "cancel", "reschedule", "confirm", "invite", "invitation", "invitations", "home", "index", "new", "me",
   "meetflow", "calendly", "cal", "demo", "test",

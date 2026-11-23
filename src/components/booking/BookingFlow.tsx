@@ -7,6 +7,7 @@ import type { PublicEvent, PublicQuestion } from "@/server/public/data";
 import { Calendar } from "./Calendar";
 import { TimezoneSelect } from "./TimezoneSelect";
 import { Confirmation, type Booked } from "./Confirmation";
+import { PreparingMeeting } from "./PreparingMeeting";
 import { PaymentStep } from "./PaymentStep";
 import { SeriesPreview } from "./SeriesPreview";
 import { hour12Store, useBrowserEnv, useHydrated } from "./client-env";
@@ -14,7 +15,7 @@ import {
   formatDateLong, formatDuration, formatMoney, formatRange, formatTime, LOCATION_LABELS,
 } from "./format";
 
-type Step = "pick" | "form" | "confirm" | "pay" | "done";
+type Step = "pick" | "form" | "confirm" | "pay" | "preparing" | "done";
 type SlotsResp = { slots: { startsAt: string; spotsLeft?: number }[] };
 type ApiError = { error?: { code?: string; message?: string; details?: unknown } };
 
@@ -180,7 +181,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
           answers, guests: guests.map((g) => g.trim()).filter(Boolean), idempotencyKey: idemKey.current, consent: true, embed: !!embed,
         }),
       });
-      const data = (await r.json().catch(() => null)) as (ApiError & { booking?: { startsAt: string; endsAt: string; status: string; meetingUrl: string | null }; manageToken?: string | null; requiresPayment?: boolean; series?: { id: string; startsAt: string; endsAt: string; status: string }[] }) | null;
+      const data = (await r.json().catch(() => null)) as (ApiError & { booking?: { startsAt: string; endsAt: string; status: string; meetingUrl: string | null }; manageToken?: string | null; requiresPayment?: boolean; meetPending?: boolean; series?: { id: string; startsAt: string; endsAt: string; status: string }[] }) | null;
       if (!r.ok || !data?.booking) {
         const code = data?.error?.code;
         const failed = (data?.error?.details as { failedOccurrence?: number } | undefined)?.failedOccurrence;
@@ -206,7 +207,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
       if (embed && window.parent !== window) {
         window.parent.postMessage({ source: "meetflow", type: "booked", eventSlug: event.slug, startsAt: b.startsAt }, "*");
       }
-      setStep(data.requiresPayment && event.priceAmount ? "pay" : "done");
+      setStep(data.requiresPayment && event.priceAmount ? "pay" : data.meetPending && data.manageToken ? "preparing" : "done");
     } catch {
       setFormError("Network error. Please check your connection and try again.");
     } finally { setSubmitting(false); }
@@ -232,6 +233,9 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
   }
 
   // ───────── render
+  if (step === "preparing" && booked?.manageToken) {
+    return <PreparingMeeting manageToken={booked.manageToken} onReady={(url, calUrl) => { setBooked((b) => (b ? { ...b, meetingUrl: url ?? b.meetingUrl, calendarMeetingUrl: calUrl } : b)); setStep("done"); }} />;
+  }
   if (step === "done" && booked) {
     return <Confirmation event={event} booked={booked} tz={tz} hour12={hour12} embed={embed} title={reschedule ? "Meeting rescheduled" : "You are scheduled"} />;
   }
@@ -273,6 +277,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
         {event.kind === "group" && <span>Group session (up to {event.capacity} attendees)</span>}
         {event.recurrence && !reschedule && <span style={{ display: "flex", gap: 8, alignItems: "center" }} data-testid="series-summary"><RefreshCw size={16} aria-hidden /> {event.recurrence.count} {event.recurrence.interval === "week" ? "weekly" : "monthly"} sessions</span>}
         {event.requiresConfirmation && !reschedule && <span>The host approves each request</span>}
+        {event.notetaker && <span>A notetaker will record (audio and video) and transcribe this meeting; notes are shared with attendees</span>}
       </div>
       {selSlot && step !== "pick" && (
         <div style={{ fontWeight: 600, display: "grid", gap: 2, marginTop: 4 }}>
@@ -324,7 +329,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
                   <p className="mf-muted" style={{ fontSize: 14, marginTop: 12 }} role="status">No times available in {month.toFormat("LLLL")}. {canNext ? "Try the next month." : "Check back later."}</p>
                 )}
                 <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
-                  <TimezoneSelect value={tz} onChange={changeTz} />
+                  <TimezoneSelect value={tz} onChange={changeTz} hour12={hour12} />
                   <div role="group" aria-label="Time format" style={{ display: "inline-flex", gap: 4 }}>
                     <button type="button" className="mf-chip" aria-pressed={hour12} onClick={() => setH12(true)}>12h</button>
                     <button type="button" className="mf-chip" aria-pressed={!hour12} onClick={() => setH12(false)}>24h</button>

@@ -1,0 +1,2 @@
+ALTER TABLE "booking" ADD COLUMN "join_code" text DEFAULT substr(md5(random()::text || clock_timestamp()::text), 1, 10) NOT NULL;--> statement-breakpoint
+ALTER TABLE "booking" ADD CONSTRAINT "booking_join_code_unique" UNIQUE("join_code");

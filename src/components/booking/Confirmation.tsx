@@ -8,6 +8,8 @@ import { formatDateLong, formatRange, isHttpUrl, LOCATION_LABELS } from "./forma
 
 export type Booked = {
   startsAt: string; endsAt: string; status: string; meetingUrl: string | null; manageToken: string | null;
+  /** Real meeting URL, used only for the add-to-calendar buttons (meetingUrl is the masked /j/ link that is displayed). */
+  calendarMeetingUrl?: string | null;
   /** Recurring series: every booked session (first === startsAt above). */
   series?: { id: string; startsAt: string; endsAt: string; status: string }[];
 };
@@ -33,7 +35,8 @@ export function Confirmation({
   }, [left, event.redirectUrl, embed]);
 
   const where = booked.meetingUrl ? "Online meeting" : event.locationAddress || LOCATION_LABELS[event.locationType] || "";
-  const link = { title: `${event.title} with ${event.host.name}`, description: event.description, location: booked.meetingUrl ?? event.locationAddress ?? undefined, startsAt: booked.startsAt, endsAt: booked.endsAt };
+  const calMeet = booked.calendarMeetingUrl ?? booked.meetingUrl;
+  const link = { title: `${event.title} with ${event.host.name}`, description: [event.description, calMeet ? `Join the meeting: ${calMeet}` : null].filter(Boolean).join("\n\n") || null, location: calMeet ?? event.locationAddress ?? undefined, startsAt: booked.startsAt, endsAt: booked.endsAt };
 
   return (
     <div className="mf-fade" style={{ display: "grid", gap: 18, maxWidth: 560, margin: "0 auto", textAlign: "center", justifyItems: "center" }}>

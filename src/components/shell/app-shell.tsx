@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   BarChart3, CalendarCheck, CalendarClock, Clock, Contact, CreditCard, ExternalLink, GitBranch, Home, LayoutList,
-  Link2, LogOut, Menu, Plug, Settings, Shield, Users, Workflow,
+  Link2, LogOut, Menu, NotebookPen, Plug, Settings, Shield, Users, Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/avatar";
@@ -22,6 +22,7 @@ const NAV = [
   { href: "/dashboard/event-types", label: "Event types", icon: LayoutList },
   { href: "/dashboard/availability", label: "Availability", icon: Clock },
   { href: "/dashboard/booking-links", label: "Booking links", icon: Link2 },
+  { href: "/dashboard/notes", label: "Meeting notes", icon: NotebookPen },
   { href: "/dashboard/contacts", label: "Contacts", icon: Contact },
   { href: "/dashboard/workflows", label: "Workflows", icon: Workflow },
   { href: "/dashboard/routing-forms", label: "Routing forms", icon: GitBranch },

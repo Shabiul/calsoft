@@ -10,7 +10,9 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { db as defaultDb, schema, type Db } from "@/server/db";
 import { AppError } from "@/server/errors";
-import { approveBooking, cancelBooking, declineBooking, markBooking, rescheduleBooking } from "./booking";
+import { approveBooking, cancelBooking, createBooking, declineBooking, markBooking, rescheduleBooking } from "./booking";
+import { getEventType } from "./event-types";
+import { meetLinkExpected } from "@/server/integrations/meet-pending";
 import { getAvailableSlots } from "@/server/scheduling/slots";
 
 const { bookings: B, invitees, inviteeAnswers, eventTypes, users, organizations, organizationMembers, bookingEvents } = schema;
@@ -239,6 +241,38 @@ export async function getRescheduleSlots(userId: string, bookingId: string, from
   if (to.getTime() - from.getTime() > 14 * 86_400_000) throw new AppError("VALIDATION", "Choose a range of up to 14 days", 422);
   const slots = await getAvailableSlots({ eventTypeId: b.eventTypeId, from, to, inviteeTimeZone: b.inviteeTimeZone, excludeBookingId: b.id });
   return slots.map((s) => s.startsAt);
+}
+
+// ───────── host-scheduled meetings
+/** Open slots for an event type the user can access, for the host-side "Schedule meeting" form. */
+export async function getScheduleSlots(userId: string, eventTypeId: string, from: Date, to: Date, timeZone: string) {
+  await getEventType({ userId }, eventTypeId);
+  if (to.getTime() - from.getTime() > 14 * 86_400_000) throw new AppError("VALIDATION", "Choose a range of up to 14 days", 422);
+  const slots = await getAvailableSlots({ eventTypeId, from, to, inviteeTimeZone: timeZone });
+  return slots.map((s) => s.startsAt);
+}
+
+export interface ScheduleMeetingInput {
+  eventTypeId: string; startsAt: string; timeZone: string;
+  invitee: { name: string; email: string; phone?: string | null };
+  /** Additional attendees (emails) invited to the meeting. */
+  guests?: string[];
+}
+/** The host books a meeting on behalf of an invitee and invites extra attendees. Goes through the normal booking path (slot checks, calendar/Meet, emails). */
+export async function scheduleMeeting(userId: string, input: ScheduleMeetingInput) {
+  await getEventType({ userId }, input.eventTypeId);
+  const res = await createBooking({
+    eventTypeId: input.eventTypeId, startsAt: input.startsAt,
+    invitee: { ...input.invitee, timeZone: input.timeZone },
+    guests: input.guests, actor: "host", actorId: userId,
+  });
+  return { bookingId: res.booking.id, meetPending: await meetLinkExpected(res.booking) };
+}
+
+/** Current Meet/meeting link of a booking the user can access (polled while the link is being created). */
+export async function getMeetingUrl(userId: string, bookingId: string, db: Db = defaultDb): Promise<string | null> {
+  const b = await loadAccessible(userId, bookingId, db);
+  return b.meetingUrl ?? null;
 }
 
 // ───────── CSV

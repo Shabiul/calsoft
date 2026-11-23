@@ -98,6 +98,8 @@ export interface CreateBookingInput {
   idempotencyKey?: string;
   /** Round robin only: prefer this host if free. */
   hostUserId?: string;
+  /** Extra attendees to invite (email only). Stored as additional invitee rows before booking events fire, so calendar/email invites include them. */
+  guests?: string[];
   actor?: Actor;
   actorId?: string;
 }
@@ -341,6 +343,13 @@ export async function createBooking(input: CreateBookingInput, deps: Deps = {}):
   }
   if (result.replay) return replayOf(result.replay);
   const first = result.rows[0];
+  const guests = [...new Set((input.guests ?? []).map((g) => g.trim().toLowerCase()).filter((g) => g && g !== email))];
+  if (guests.length) {
+    for (const r of result.rows) {
+      await db.insert(schema.invitees).values(guests.map((g) => ({ bookingId: r.booking.id, name: g.split("@")[0]!.slice(0, 120), email: g })));
+      await db.insert(schema.bookingEvents).values({ bookingId: r.booking.id, type: "guests_added", actor: input.actor ?? "invitee", data: { count: guests.length } });
+    }
+  }
   for (let i = 0; i < result.rows.length; i++) {
     await onBookingEvent("booking.created", result.rows[i].booking.id, {
       manageToken: result.rows[i].token,

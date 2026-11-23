@@ -12,11 +12,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   const v = await loadBookingView(token);
   if (!v) return jsonError("NOT_FOUND", "Booking not found.", 404);
   const base = (process.env.APP_URL || req.nextUrl.origin).replace(/\/$/, "");
-  const location = v.meetingUrl ?? v.event.locationAddress ?? LOCATION_LABELS[v.locationType ?? v.event.locationType] ?? null;
+  // The calendar event gets the real meeting URL; pages and emails only show the masked /j/ link.
+  const location = v.calendarMeetingUrl ?? v.event.locationAddress ?? LOCATION_LABELS[v.locationType ?? v.event.locationType] ?? null;
   const ics = generateIcs({
     uid: `${v.id}@meetflow`,
     title: `${v.event.title} with ${v.event.host.name}`,
-    description: v.event.description,
+    description: [v.event.description, v.calendarMeetingUrl ? `Join the meeting: ${v.calendarMeetingUrl}` : null].filter(Boolean).join("\n\n") || null,
     location,
     startsAt: v.startsAt, endsAt: v.endsAt,
     url: `${base}/booking/${token}`,

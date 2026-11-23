@@ -9,7 +9,7 @@ import {
 
 export type DrawerDetail = {
   id: string; status: string; startsAt: string; endsAt: string; eventTitle: string; hostNames: string[]; organizationName: string | null;
-  inviteeTimeZone: string; meetingUrl: string | null; hostNotes: string | null; cancelReason: string | null; cancelledBy: string | null;
+  inviteeTimeZone: string; meetingUrl: string | null; notesUrl: string; hostNotes: string | null; cancelReason: string | null; cancelledBy: string | null;
   invitees: { name: string; email: string; phone: string | null }[];
   answers: { question: string; answer: string }[];
   timeline: { id: string; at: string; type: string; actor: string | null; detail: string | null }[];
@@ -69,6 +69,7 @@ export function BookingDrawer({ detail, timeZone }: { detail: DrawerDetail; time
             {detail.invitees.map((i) => <div key={i.email}>{i.name} · <a className="text-brand hover:underline" href={`mailto:${i.email}`}>{i.email}</a>{i.phone ? ` · ${i.phone}` : ""}</div>)}
           </Row>
           {detail.series && <Row label="Series">Session {detail.series.position} of {detail.series.count}{detail.series.pendingApproval > 0 ? ` · ${detail.series.pendingApproval} awaiting approval` : ""}</Row>}
+          {detail.notesUrl && <Row label="Meeting notes"><a className="text-brand hover:underline" href={detail.notesUrl} target="_blank" rel="noreferrer">Open shared notes</a></Row>}
           {detail.meetingUrl && <Row label="Location"><a className="break-all text-brand hover:underline" href={detail.meetingUrl} target="_blank" rel="noreferrer">{detail.meetingUrl}</a></Row>}
           {detail.status === "cancelled" && <Row label="Cancelled">{detail.cancelledBy ? `by ${detail.cancelledBy}` : ""}{detail.cancelReason ? ` · ${detail.cancelReason}` : ""}</Row>}
           {detail.rescheduledFromId && <Row label="Rescheduled from"><button className="text-brand hover:underline" onClick={() => open(detail.rescheduledFromId!)}>Previous booking</button></Row>}

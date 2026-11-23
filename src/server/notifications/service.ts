@@ -2,9 +2,9 @@
  * Notification pipeline: notification_log row (dedupe_key unique => idempotent) -> BullMQ job ->
  * provider send. Failures retry with exponential backoff; after the final attempt status = 'dead'.
  */
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "@/server/db";
-import { notificationLogs } from "@/server/db/schema";
+import { bookings, connectedCalendars, invitees, notificationLogs } from "@/server/db/schema";
 import { enqueue, MAX_ATTEMPTS, QUEUES } from "@/server/queue";
 import { loadBookingContext } from "./context";
 import { getEmailProvider } from "./provider";
@@ -59,6 +59,21 @@ export async function processNotification(data: NotificationJobData, opts: { att
     if (kind === "reminder" && ctx.booking.status !== "confirmed") {
       await db.update(notificationLogs).set({ status: "sent", error: `skipped: booking ${ctx.booking.status}` }).where(eq(notificationLogs.id, log.id));
       return "skipped";
+    }
+    // Extra attendees: render the email for them (greeting, calendar attendee) instead of the primary invitee.
+    const rcpt = log.recipient.toLowerCase();
+    if (rcpt !== ctx.invitee.email.toLowerCase() && rcpt !== ctx.host.email.toLowerCase()) {
+      const [g] = await db.select({ name: invitees.name, email: invitees.email }).from(invitees)
+        .where(and(eq(invitees.bookingId, log.bookingId), sql`lower(${invitees.email}) = ${rcpt}`)).limit(1);
+      if (g) ctx.invitee = { name: g.name, email: g.email };
+    }
+    // The Meet link is written by the calendar sync, which runs in parallel with this job. Retry (backoff) until it exists;
+    // the final attempt sends regardless so a missing link never blocks the email.
+    if (["confirmation", "approved", "reschedule", "host_notification"].includes(kind) && ctx.booking.locationType === "google_meet" && !ctx.booking.meetingUrl && !opts.isFinal && opts.attemptsMade < 3) {
+      const [conn] = await db.select({ id: connectedCalendars.id }).from(connectedCalendars)
+        .innerJoin(bookings, eq(bookings.hostUserId, connectedCalendars.userId))
+        .where(and(eq(bookings.id, log.bookingId), eq(connectedCalendars.provider, "google"), eq(connectedCalendars.status, "active"))).limit(1);
+      if (conn) throw new Error("waiting for Google Meet link");
     }
     const role: Role = kind === "host_notification" || log.recipient.toLowerCase() === ctx.host.email.toLowerCase() ? "host" : "invitee";
     const extra: RenderExtra = { ...(data.extra ?? {}) };

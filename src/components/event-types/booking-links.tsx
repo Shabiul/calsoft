@@ -8,7 +8,7 @@ import {
 } from "@/components/ui";
 import { copyText } from "./copy";
 
-export type BookingLinkItem = { id: string; title: string; durationMinutes: number; color: string | null; group: string; path: string | null; isActive: boolean; isOneOff: boolean };
+export type BookingLinkItem = { id: string; title: string; durationMinutes: number; color: string | null; group: string; path: string | null; embedPath: string | null; isActive: boolean; isOneOff: boolean };
 
 function CopyButton({ text, label = "Copy", disabled }: { text: string; label?: string; disabled?: boolean }) {
   const [done, setDone] = React.useState(false);
@@ -50,7 +50,7 @@ export function BookingLinks({ items, origin, hasUsername }: { items: BookingLin
 
   const fullUrl = (p: string) => `${liveOrigin}${p}`;
   const groups = [...new Set(items.map((i) => i.group))];
-  const snippet = selected?.path ? buildSnippet(kind, { origin: liveOrigin, url: fullUrl(selected.path), text, color }) : "";
+  const snippet = selected?.embedPath ? buildSnippet(kind, { origin: liveOrigin, url: fullUrl(selected.embedPath), text, color }) : "";
   const shareUrl = selected?.path ? fullUrl(selected.path) : "";
   const shareText = selected ? `Book a time with me: ${selected.title}` : "";
   const enc = encodeURIComponent;

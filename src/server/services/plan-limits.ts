@@ -56,11 +56,15 @@ export async function currentUsage(subject: PlanSubject, metric: PlanMetric, db:
 
 const LABELS: Record<PlanMetric, string> = { maxEventTypes: "event types", maxSchedules: "availability schedules" };
 
+/** Plan limits are NOT enforced unless ENFORCE_PLAN_LIMITS=true (billing pages and plan data are unaffected). */
+const enforced = () => process.env.ENFORCE_PLAN_LIMITS === "true";
+
 /**
  * Throws AppError("PLAN_LIMIT", ..., 402) when creating one more resource would exceed the plan limit.
  * `adding` is how many new resources are about to be created (default 1).
  */
 export async function assertWithinPlan(subject: PlanSubject, metric: PlanMetric, db: Db = defaultDb, adding = 1): Promise<void> {
+  if (!enforced()) return;
   const { limits, planId } = await getPlanLimits(subject, db);
   const limit = limits[metric];
   if (typeof limit !== "number" || limit < 0) return; // unlimited / not configured
@@ -76,6 +80,7 @@ export async function assertWithinPlan(subject: PlanSubject, metric: PlanMetric,
 
 /** Boolean feature flag check (e.g. "paymentsEnabled"). A missing flag is treated as allowed. */
 export async function assertFeature(subject: PlanSubject, feature: PlanFeature, db: Db = defaultDb): Promise<void> {
+  if (!enforced()) return;
   const { limits, planId } = await getPlanLimits(subject, db);
   if (limits[feature] === false) {
     throw new AppError("PLAN_FEATURE", `"${feature}" is not available on the ${planId ?? "current"} plan.`, 402);

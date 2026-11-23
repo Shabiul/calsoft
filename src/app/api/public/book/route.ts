@@ -1,7 +1,7 @@
+import { maskedMeetingUrl } from "@/server/public/join";
 import type { NextRequest } from "next/server";
-import { db } from "@/server/db";
-import { invitees, bookingEvents } from "@/server/db/schema";
 import { createBooking } from "@/server/services/booking";
+import { meetLinkExpected } from "@/server/integrations/meet-pending";
 import { loadEventById } from "@/server/public/data";
 import { bookBodySchema, validateAnswers } from "@/server/public/schemas";
 import { handleError, jsonError, jsonOk, readJson } from "@/server/public/http";
@@ -37,28 +37,21 @@ export async function POST(req: NextRequest) {
       invitee: body.invitee,
       answers: body.answers,
       idempotencyKey: body.idempotencyKey,
+      guests: body.guests, // stored as extra invitees before booking events fire, so every attendee gets the emails/invites
       actor: "invitee",
     });
-
-    // Guests: stored as additional invitee rows (first booking only, never on idempotent replay).
-    if (!res.idempotentReplay && body.guests.length) {
-      const uniq = [...new Set(body.guests)].filter((g) => g !== body.invitee.email);
-      if (uniq.length) {
-        await db.insert(invitees).values(uniq.map((email) => ({ bookingId: res.booking.id, name: email.split("@")[0]!.slice(0, 120), email })));
-        await db.insert(bookingEvents).values({ bookingId: res.booking.id, type: "guests_added", actor: "invitee", data: { count: uniq.length } });
-      }
-    }
 
     const b = res.booking;
     return jsonOk({
       booking: {
         id: b.id, startsAt: b.startsAt.toISOString(), endsAt: b.endsAt.toISOString(), status: b.status,
-        meetingUrl: b.status === "confirmed" ? b.meetingUrl : null,
+        meetingUrl: b.status === "confirmed" ? maskedMeetingUrl(b) : null,
       },
       manageToken: res.manageToken,
       // Recurring series: every occurrence (manage tokens are only available at creation, never on replay).
       series: res.series?.map((s) => ({ id: s.booking.id, startsAt: s.booking.startsAt.toISOString(), endsAt: s.booking.endsAt.toISOString(), status: s.booking.status, manageToken: s.manageToken })),
       requiresPayment: b.status === "pending_payment",
+      meetPending: !res.idempotentReplay && (await meetLinkExpected(b)),
       replay: !!res.idempotentReplay,
     }, { status: res.idempotentReplay ? 200 : 201 });
   } catch (e) {

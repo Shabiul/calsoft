@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth-session";
 import { runAction, type ActionResult } from "@/lib/validation/action-result";
 import { AppError } from "@/server/errors";
-import { approveScheduled, cancelScheduled, declineScheduled, getRescheduleSlots, markScheduled, rescheduleScheduled, setHostNotes } from "@/server/services/scheduled";
+import { approveScheduled, cancelScheduled, declineScheduled, getRescheduleSlots, markScheduled, rescheduleScheduled, scheduleMeeting, getScheduleSlots, getMeetingUrl, setHostNotes } from "@/server/services/scheduled";
 
 const uuid = z.string().uuid();
 function parse<T>(schema: z.ZodType<T>, v: unknown): T {
@@ -79,5 +79,32 @@ export async function rescheduleSlotsAction(bookingId: string, date: string, tim
     if (!start.isValid) throw new AppError("VALIDATION", "Invalid date or time zone", 422);
     const slots = await getRescheduleSlots(user.id, parse(uuid, bookingId), start.toJSDate(), start.plus({ days: 1 }).toJSDate());
     return { slots };
+  });
+}
+
+const tz = z.string().min(1).max(64);
+const email = z.string().trim().toLowerCase().pipe(z.email("Enter a valid email").max(254));
+
+export async function getScheduleSlotsAction(eventTypeId: string, fromIso: string, toIso: string, timeZone: string): Promise<ActionResult<string[]>> {
+  const user = await requireUser();
+  return runAction(() => getScheduleSlots(user.id, parse(uuid, eventTypeId), new Date(parse(z.iso.datetime({ offset: true }), fromIso)), new Date(parse(z.iso.datetime({ offset: true }), toIso)), parse(tz, timeZone)));
+}
+
+export async function getMeetingUrlAction(bookingId: string): Promise<ActionResult<{ meetingUrl: string | null }>> {
+  const user = await requireUser();
+  return runAction(async () => ({ meetingUrl: await getMeetingUrl(user.id, parse(uuid, bookingId)) }));
+}
+
+export async function scheduleMeetingAction(input: unknown): Promise<ActionResult<{ bookingId: string; meetPending: boolean }>> {
+  const user = await requireUser();
+  return runAction(async () => {
+    const v = parse(z.object({
+      eventTypeId: uuid, startsAt: z.iso.datetime({ offset: true }), timeZone: tz,
+      invitee: z.object({ name: z.string().trim().min(1, "Name is required").max(120), email, phone: z.string().trim().max(40).optional() }),
+      guests: z.array(email).max(10).default([]),
+    }), input);
+    const r = await scheduleMeeting(user.id, v);
+    refresh();
+    return r;
   });
 }

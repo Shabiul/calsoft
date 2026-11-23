@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/server/db";
-import { bookings } from "@/server/db/schema";
+import { bookings, invitees } from "@/server/db/schema";
 import { dedupeKey } from "@/server/queue/backoff";
 import type { EventJobData } from "@/server/queue";
 import { loadBookingContext } from "./context";
@@ -16,6 +16,18 @@ export async function handleNotificationEvent(event: EventJobData): Promise<void
   if (!ctx) return;
   const send = (kind: NotificationKind, recipient: string, role: string, extra?: RenderExtra, bId = bookingId) =>
     queueNotification({ kind, bookingId: bId, recipient, dedupeKey: dedupeKey(kind, bId, role), extra });
+  /** Extra attendees (everyone after the primary invitee). They get the same emails, without the manage link. */
+  const sendGuests = async (kind: NotificationKind, extra?: RenderExtra) => {
+    const rows = await db.select({ email: invitees.email }).from(invitees)
+      .where(and(eq(invitees.bookingId, bookingId), isNull(invitees.cancelledAt))).orderBy(asc(invitees.createdAt));
+    const seen = new Set([ctx.invitee.email.toLowerCase(), ctx.host.email.toLowerCase()]);
+    for (const { email } of rows) {
+      const e = email.toLowerCase();
+      if (seen.has(e)) continue;
+      seen.add(e);
+      await send(kind, email, `guest:${e}`, extra);
+    }
+  };
   const manage = payload.manageToken ? { manageToken: payload.manageToken } : {};
 
   // Recurring series: every occurrence gets reminders/calendar sync, but the invitee/host get ONE email per series
@@ -39,9 +51,11 @@ export async function handleNotificationEvent(event: EventJobData): Promise<void
       if (!lead) return;
       if (payload.approved) {
         await send("approved", ctx.invitee.email, "invitee", manage);
+        await sendGuests("approved");
         return;
       }
       await send("confirmation", ctx.invitee.email, "invitee", manage);
+      await sendGuests("confirmation");
       await send("host_notification", ctx.host.email, "host");
       return;
     }
@@ -60,6 +74,7 @@ export async function handleNotificationEvent(event: EventJobData): Promise<void
       if (ctx.booking.status !== "confirmed") return;
       await send("reschedule", ctx.invitee.email, "invitee", { ...manage, previousStartsAt });
       await send("reschedule", ctx.host.email, "host", { previousStartsAt });
+      await sendGuests("reschedule", { previousStartsAt });
       return;
     }
     case "booking.cancelled": {
@@ -68,6 +83,7 @@ export async function handleNotificationEvent(event: EventJobData): Promise<void
       const seriesCount = payload.seriesCount && payload.seriesCount > 1 ? { seriesCount: payload.seriesCount } : undefined;
       await send("cancellation", ctx.invitee.email, "invitee", seriesCount);
       await send("cancellation", ctx.host.email, "host", seriesCount);
+      await sendGuests("cancellation", seriesCount);
       return;
     }
     case "booking.expired":

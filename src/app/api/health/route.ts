@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { redisTls } from "@/server/queue/redis-tls";
 
 /**
  * GET /api/health            -> liveness (process is up; no dependencies touched)
@@ -32,6 +33,7 @@ export async function GET(req: NextRequest) {
       maxRetriesPerRequest: 1,
       connectTimeout: 2000,
       retryStrategy: () => null,
+      ...redisTls(),
     });
     redis.on("error", () => {});
     await withTimeout(redis.connect());

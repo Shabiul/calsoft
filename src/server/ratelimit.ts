@@ -3,6 +3,7 @@
  * always keeps an in-process fallback so a Redis outage never blocks (or fully un-protects) public endpoints.
  */
 import Redis from "ioredis";
+import { redisTls } from "@/server/queue/redis-tls";
 
 type Entry = { count: number; resetAt: number };
 const mem = new Map<string, Entry>();
@@ -14,7 +15,7 @@ function redis(): Redis | null {
   const url = process.env.REDIS_URL;
   if (!url) return (g.__rlRedis = null);
   try {
-    const r = new Redis(url, { maxRetriesPerRequest: 1, enableOfflineQueue: false, lazyConnect: false, connectTimeout: 1500 });
+    const r = new Redis(url, { maxRetriesPerRequest: 1, enableOfflineQueue: false, lazyConnect: false, connectTimeout: 1500, ...redisTls() });
     r.on("error", () => { /* fall back to memory */ });
     return (g.__rlRedis = r);
   } catch {

@@ -8,6 +8,7 @@ import { Queue, type JobsOptions, type ConnectionOptions } from "bullmq";
 import IORedis, { type Redis } from "ioredis";
 import { randomUUID } from "node:crypto";
 import { backoffDelay } from "./backoff";
+import { redisTls } from "./redis-tls";
 
 export const QUEUES = {
   events: "events",
@@ -48,13 +49,13 @@ const g = globalThis as unknown as { __mfRedis?: Redis; __mfQueues?: Map<string,
 
 export function getConnection(): Redis {
   if (!g.__mfRedis) {
-    g.__mfRedis = new IORedis(process.env.REDIS_URL ?? "redis://localhost:63799", { maxRetriesPerRequest: null });
+    g.__mfRedis = new IORedis(process.env.REDIS_URL ?? "redis://localhost:63799", { maxRetriesPerRequest: null, ...redisTls() });
   }
   return g.__mfRedis;
 }
 /** Workers need their own blocking connection. */
 export function createConnection(): Redis {
-  return new IORedis(process.env.REDIS_URL ?? "redis://localhost:63799", { maxRetriesPerRequest: null });
+  return new IORedis(process.env.REDIS_URL ?? "redis://localhost:63799", { maxRetriesPerRequest: null, ...redisTls() });
 }
 export const asConn = (r: Redis) => r as unknown as ConnectionOptions;
 

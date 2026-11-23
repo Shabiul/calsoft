@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { db as defaultDb, schema, type Db } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { assertFeature, assertWithinPlan, type PlanSubject } from "./plan-limits";
+import { newShortCode } from "./short-code";
 import { eventTypeInputSchema, isTeamKind, slugify, type EventTypeInput } from "@/lib/validation/event-types";
 
 const { eventTypes, eventHosts, eventQuestions, bookingPageSettings, organizationMembers, availabilitySchedules, users } = schema;
@@ -142,7 +143,7 @@ function columns(v: EventTypeInput) {
     bufferBeforeMinutes: v.bufferBeforeMinutes, bufferAfterMinutes: v.bufferAfterMinutes,
     minNoticeMinutes: v.minNoticeMinutes, maxHorizonDays: v.maxHorizonDays,
     slotIntervalMinutes: v.slotIntervalMinutes ?? null, dailyLimit: v.dailyLimit ?? null, weeklyLimit: v.weeklyLimit ?? null,
-    capacity: v.capacity, scheduleId: v.scheduleId ?? null, requiresConfirmation: v.requiresConfirmation,
+    capacity: v.capacity, scheduleId: v.scheduleId ?? null, requiresConfirmation: v.requiresConfirmation, notetakerEnabled: v.notetakerEnabled,
     cancellationPolicy: v.cancellationPolicy || null, allowReschedule: v.allowReschedule, minCancelNoticeMinutes: v.minCancelNoticeMinutes,
     color: v.color ?? null, redirectUrl: v.redirectUrl ?? null,
     priceAmount: v.priceAmount ?? null, priceCurrency: v.priceAmount != null ? (v.priceCurrency ?? null) : null,
@@ -214,7 +215,7 @@ export async function createEventType(actor: Actor, input: unknown, db: Db = def
   if (await slugTaken(scope, v.slug, null, db)) throw new AppError("SLUG_TAKEN", `The link "${v.slug}" is already used by another event type`, 409, [{ path: "slug", message: "Already in use" }]);
   try {
     const id = await db.transaction(async (tx) => {
-      const [row] = await tx.insert(eventTypes).values({ ...columns(v), ...scope }).returning({ id: eventTypes.id });
+      const [row] = await tx.insert(eventTypes).values({ ...columns(v), ...scope, shortCode: newShortCode() }).returning({ id: eventTypes.id });
       await writeChildren(tx, row.id, v);
       return row.id;
     });
@@ -257,7 +258,7 @@ export async function duplicateEventType(actor: Actor, id: string, opts: { oneOf
     durationMinutes: src.durationMinutes, locationType: src.locationType, locationValue: src.locationValue,
     bufferBeforeMinutes: src.bufferBeforeMinutes, bufferAfterMinutes: src.bufferAfterMinutes, minNoticeMinutes: src.minNoticeMinutes,
     maxHorizonDays: src.maxHorizonDays, slotIntervalMinutes: src.slotIntervalMinutes, dailyLimit: src.dailyLimit, weeklyLimit: src.weeklyLimit,
-    capacity: src.capacity, scheduleId: src.scheduleId, requiresConfirmation: src.requiresConfirmation, cancellationPolicy: src.cancellationPolicy,
+    capacity: src.capacity, scheduleId: src.scheduleId, requiresConfirmation: src.requiresConfirmation, notetakerEnabled: src.notetakerEnabled, cancellationPolicy: src.cancellationPolicy,
     allowReschedule: src.allowReschedule, minCancelNoticeMinutes: src.minCancelNoticeMinutes, color: src.color, redirectUrl: src.redirectUrl,
     priceAmount: src.priceAmount, priceCurrency: src.priceCurrency, paymentProvider: src.paymentProvider as "stripe" | "razorpay" | null,
     reminders: src.reminders, recurrence: src.recurrence, isActive: src.isActive, isOneOff: !!opts.oneOff,
@@ -266,7 +267,7 @@ export async function duplicateEventType(actor: Actor, id: string, opts: { oneOf
     pageSettings: src.pageSettings,
   });
   const id2 = await db.transaction(async (tx) => {
-    const [row] = await tx.insert(eventTypes).values({ ...columns(dup), ...scope }).returning({ id: eventTypes.id });
+    const [row] = await tx.insert(eventTypes).values({ ...columns(dup), ...scope, shortCode: newShortCode() }).returning({ id: eventTypes.id });
     await writeChildren(tx, row.id, dup);
     return row.id;
   });
@@ -291,7 +292,9 @@ export async function deleteEventType(actor: Actor, id: string, db: Db = default
 }
 
 /** Public path (without origin) of an event type page, or null if the owner has no username/org slug yet. */
-export async function publicPathFor(row: Pick<EventTypeRow, "ownerUserId" | "organizationId" | "slug">, db: Db = defaultDb): Promise<string | null> {
+/** The link to share: the locked short link when the event has one, else /<username|org>/<slug>. */
+export async function publicPathFor(row: Pick<EventTypeRow, "ownerUserId" | "organizationId" | "slug" | "shortCode">, db: Db = defaultDb): Promise<string | null> {
+  if (row.shortCode) return `/m/${row.shortCode}`;
   if (row.ownerUserId) {
     const [u] = await db.select({ username: users.username }).from(users).where(eq(users.id, row.ownerUserId)).limit(1);
     return u?.username ? `/${u.username}/${row.slug}` : null;

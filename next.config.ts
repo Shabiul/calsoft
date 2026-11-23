@@ -7,6 +7,7 @@ const isProd = process.env.NODE_ENV === "production";
 // Tighten with nonces later (see SECURITY.md). Payment/Sentry origins are allow-listed explicitly.
 const csp = [
   "default-src 'self'",
+  "media-src 'self' blob: https:", // meeting recordings play from Recall's storage (notes page)
   `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"} https://js.stripe.com https://checkout.razorpay.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
