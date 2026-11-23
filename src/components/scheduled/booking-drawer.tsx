@@ -83,7 +83,7 @@ export function BookingDrawer({ detail, timeZone }: { detail: DrawerDetail; time
         )}
 
         <section aria-label="Internal notes" className="space-y-2">
-          <h3 className="text-sm font-semibold">Internal notes</h3>
+          <h3 className="text-sm font-semibold">Meeting context &amp; internal notes</h3>
           <Textarea value={notes} maxLength={5000} onChange={(e) => setNotes(e.target.value)} placeholder="Visible to your team only, never to the invitee." />
           <Button size="sm" variant="secondary" loading={pending} disabled={notes === (detail.hostNotes ?? "")}
             onClick={() => start(async () => { const r = await saveNotesAction(detail.id, notes); if (!r.ok) toast.error(r.error.message); else done("Notes saved"); })}>Save notes</Button>

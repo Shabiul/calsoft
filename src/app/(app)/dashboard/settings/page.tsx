@@ -31,7 +31,6 @@ export default async function SettingsPage() {
   const session = await requireUser();
   const [u] = await db.select().from(schema.users).where(eq(schema.users.id, session.id)).limit(1);
   const accounts = await db.select({ providerId: schema.accounts.providerId }).from(schema.accounts).where(eq(schema.accounts.userId, session.id));
-  const hasPassword = accounts.some((a) => a.providerId === "credential");
   const timeZones = Intl.supportedValuesOf("timeZone");
 
   return (
@@ -55,7 +54,7 @@ export default async function SettingsPage() {
           />
         </TabsContent>
         <TabsContent value="security">
-          <SecuritySection email={u!.email} hasPassword={hasPassword} twoFactorEnabled={Boolean(u!.twoFactorEnabled)} providers={accounts.map((a) => a.providerId).filter((p) => p !== "credential")} />
+          <SecuritySection email={u!.email} providers={accounts.map((a) => a.providerId).filter((p) => p !== "credential")} />
         </TabsContent>
         <TabsContent value="developer">
           <div className="grid gap-3 text-sm lg:max-w-2xl">
@@ -63,7 +62,7 @@ export default async function SettingsPage() {
             <Link href="/dashboard/settings/webhooks" className="rounded-xl border bg-card p-4 hover:bg-accent"><b>Webhooks</b><p className="text-muted-foreground">Send booking events to your own endpoints.</p></Link>
           </div>
         </TabsContent>
-        <TabsContent value="data"><DataSection email={u!.email} hasPassword={hasPassword} /></TabsContent>
+        <TabsContent value="data"><DataSection email={u!.email} /></TabsContent>
       </Tabs>
     </div>
   );

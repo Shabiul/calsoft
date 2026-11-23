@@ -9,6 +9,7 @@ import { createWorkflowAction, updateWorkflowAction } from "./actions";
 import { ACTION_LABELS, TEMPLATE_VARIABLES, TRIGGER_LABELS } from "./labels";
 
 import { blankStep, type StepState, type WorkflowFormValue } from "./workflow-state";
+import { samplesForTrigger } from "@/lib/workflow-samples";
 export type { StepState, WorkflowFormValue };
 
 const selectCls = "flex h-9 w-full rounded-md border border-input bg-card px-3 text-sm shadow-sm";
@@ -43,7 +44,7 @@ export function WorkflowForm({ initial, eventTypes }: { initial: WorkflowFormVal
     const payload = {
       name: v.name, trigger: v.trigger, isActive: v.isActive, eventTypeIds: v.eventTypeIds.length ? v.eventTypeIds : null,
       steps: v.steps.map((s) => s.action === "send_email"
-        ? { action: s.action, offsetMinutes: s.offsetMinutes, to: s.to, subject: s.subject, body: s.body }
+        ? { action: s.action, offsetMinutes: s.offsetMinutes, to: s.to, subject: s.subject, body: s.body, attachIcs: s.attachIcs }
         : { action: s.action, offsetMinutes: s.offsetMinutes, url: s.url, ...(s.secret ? { secret: s.secret } : s.secretEnc ? { secretEnc: s.secretEnc } : {}) }),
     };
     start(async () => {
@@ -121,6 +122,19 @@ export function WorkflowForm({ initial, eventTypes }: { initial: WorkflowFormVal
             </div>
             {s.action === "send_email" ? (
               <>
+                {samplesForTrigger(v.trigger).length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`sample-${i}`}>Start from a sample message</Label>
+                    <select id={`sample-${i}`} className={selectCls} value="" onChange={(e) => {
+                      const sample = samplesForTrigger(v.trigger).find((x) => x.id === e.target.value);
+                      if (sample) setStep(i, { subject: sample.subject, body: sample.body, offsetMinutes: sample.offsetMinutes, to: sample.to, attachIcs: sample.attachIcs });
+                    }}>
+                      <option value="">Choose a sample to fill the subject, message, timing and attachment...</option>
+                      {samplesForTrigger(v.trigger).map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+                    </select>
+                    <p className="text-xs text-muted-foreground">Replaces this step&apos;s subject and message. You can edit everything afterwards.</p>
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor={`to-${i}`}>Send to</Label>
                   <select id={`to-${i}`} className={selectCls} value={s.to} onChange={(e) => setStep(i, { to: e.target.value as StepState["to"] })}>
@@ -138,6 +152,15 @@ export function WorkflowForm({ initial, eventTypes }: { initial: WorkflowFormVal
                   {errors[`steps.${i}.body`] && <p className="text-sm text-destructive">{errors[`steps.${i}.body`]}</p>}
                   <p className="text-xs text-muted-foreground">Variables: {TEMPLATE_VARIABLES.map((t) => `{{${t}}}`).join(" ")}. Plain text only; content is HTML-escaped.</p>
                 </div>
+                <label className="flex items-start gap-2 text-sm" htmlFor={`ics-${i}`}>
+                  <input id={`ics-${i}`} type="checkbox" className="mt-1" checked={s.attachIcs} onChange={(e) => setStep(i, { attachIcs: e.target.checked })} />
+                  <span>
+                    <span className="font-medium">Attach the calendar invite (.ics)</span>
+                    <span className="block text-xs text-muted-foreground">
+                      The invitee can add the meeting to Google, Outlook or Apple Calendar in one click. For cancelled bookings the attachment removes the event from their calendar. Sent to the invitee only.
+                    </span>
+                  </span>
+                </label>
               </>
             ) : (
               <>

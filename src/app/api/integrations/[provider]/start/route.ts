@@ -5,7 +5,7 @@ import { buildAuthUrl, createOAuthState } from "@/server/integrations/oauth";
 import { errorResponse } from "@/server/integrations/http-errors";
 import type { OAuthProviderName } from "@/server/integrations/types";
 
-const PROVIDERS = ["google", "microsoft", "zoom"] as const;
+const PROVIDERS = ["google", "microsoft", "zoho", "zoom"] as const;
 const OAUTH_COOKIE = (p: string) => `mf_oauth_${p}`;
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {

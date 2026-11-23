@@ -8,6 +8,7 @@ import {
   changeMemberRole, checkOrgSlug, createOrganization, inviteMember, leaveOrganization, removeMember, resendInvitation,
   revokeInvitation, setMemberPermissions, transferOwnership, updateOrganization,
 } from "@/server/services/organizations";
+import { reactivateMember, setMemberManager } from "@/server/services/bench";
 
 const uuid = z.string().uuid();
 const role = z.enum(["owner", "admin", "member"]);
@@ -88,6 +89,24 @@ export async function setPermissionsAction(orgId: string, userId: string, permis
   const user = await requireUser();
   return runAction(async () => {
     await setMemberPermissions(user.id, parse(uuid, orgId), parse(z.string().min(1), userId), parse(z.array(z.string()).max(20), permissions));
+    refresh(orgId);
+    return null;
+  });
+}
+
+export async function reactivateMemberAction(orgId: string, userId: string): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(async () => {
+    await reactivateMember(user.id, parse(uuid, orgId), parse(z.string().min(1), userId));
+    refresh(orgId);
+    return null;
+  });
+}
+
+export async function setManagerAction(orgId: string, userId: string, managerUserId: string | null): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(async () => {
+    await setMemberManager(user.id, parse(uuid, orgId), parse(z.string().min(1), userId), parse(z.string().min(1).nullable(), managerUserId));
     refresh(orgId);
     return null;
   });

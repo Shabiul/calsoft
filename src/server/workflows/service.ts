@@ -14,6 +14,8 @@ export const workflowStepSchema = z.object({
   to: z.enum(["invitee", "host", "both"]).optional(),
   subject: z.string().max(200).optional(),
   body: z.string().max(5000).optional(),
+  /** Attach the calendar invite (.ics) to the email (a cancellation invite for cancelled bookings). */
+  attachIcs: z.boolean().optional(),
   url: z.string().max(2000).optional(),
   secret: z.string().max(200).optional(),
   /** kept when editing an existing webhook step without re-entering the secret */
@@ -34,7 +36,7 @@ export const workflowInputSchema = z.object({
 export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 function stepConfig(s: z.infer<typeof workflowStepSchema>): Record<string, unknown> {
-  if (s.action === "send_email") return { to: s.to ?? "invitee", subject: s.subject, body: s.body };
+  if (s.action === "send_email") return { to: s.to ?? "invitee", subject: s.subject, body: s.body, attachIcs: s.attachIcs === true };
   try { assertUrlAllowed(s.url!); } catch (e) { if (e instanceof SsrfError) throw new AppError("VALIDATION", e.message, 422); throw e; }
   const cfg: Record<string, unknown> = { url: s.url };
   if (s.secret) cfg.secretEnc = encrypt(s.secret);
@@ -116,8 +118,8 @@ export async function getWorkflowForEdit(userId: string, id: string) {
   return {
     id: wf.id, name: wf.name, trigger: wf.trigger, eventTypeIds: wf.eventTypeIds ?? [], isActive: wf.isActive,
     steps: steps.map((s) => {
-      const c = s.config as Record<string, string | undefined>;
-      return { action: s.action, offsetMinutes: s.offsetMinutes, to: c.to, subject: c.subject, body: c.body, url: c.url, secretEnc: c.secretEnc, hasSecret: !!c.secretEnc };
+      const c = s.config as Record<string, string | boolean | undefined>;
+      return { action: s.action, offsetMinutes: s.offsetMinutes, to: c.to as string | undefined, subject: c.subject as string | undefined, body: c.body as string | undefined, attachIcs: c.attachIcs === true, url: c.url as string | undefined, secretEnc: c.secretEnc as string | undefined, hasSecret: !!c.secretEnc };
     }),
   };
 }

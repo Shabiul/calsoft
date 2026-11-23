@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
-import { getNotes, recordingUrls, verifyNotesToken } from "@/server/notetaker";
+import { getNotes, recordingUrls, hostNotesBooking } from "@/server/notetaker";
+import { getSession } from "@/lib/auth-session";
 import { handleError, jsonError } from "@/server/public/http";
 import { limitOr429 } from "@/server/ratelimit";
 
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     const limited = await limitOr429(req, "notes-media", 60, 60);
     if (limited) return limited;
     const { token, kind } = await ctx.params;
-    const bookingId = verifyNotesToken(token);
+    const bookingId = await hostNotesBooking(token, (await getSession())?.user.id);
     if (!bookingId || (kind !== "video" && kind !== "audio")) return jsonError("NOT_FOUND", "Not found.", 404);
     const n = await getNotes(bookingId);
     if (!n.botId) return jsonError("NOT_FOUND", "No recording for this meeting.", 404);

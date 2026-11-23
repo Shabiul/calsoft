@@ -14,6 +14,7 @@ import { sha256, randomToken } from "@/lib/crypto";
 import { validateUsername } from "@/lib/username";
 import { authEmailTemplate } from "@/lib/auth-email";
 import { APP_NAME } from "@/lib/brand";
+import { isCompanyEmail } from "@/lib/company-email";
 import { getEmailProvider } from "@/server/notifications/provider";
 import { expandAvailability, subtractIntervals, type Interval } from "@/server/scheduling/availability";
 import { isHandleTaken } from "./username";
@@ -192,13 +193,17 @@ export async function updateOrganization(userId: string, orgId: string, input: P
 }
 
 // ───────── members
-export type MemberRow = { userId: string; name: string; email: string; image: string | null; role: OrgRole; permissions: string[]; joinedAt: Date; timeZone: string };
+export type MemberRow = {
+  userId: string; name: string; email: string; image: string | null; role: OrgRole; permissions: string[]; joinedAt: Date; timeZone: string;
+  status: string; lastActiveAt: Date; managerUserId: string | null;
+};
 
 export async function listMembers(userId: string, orgId: string, db: Db = defaultDb): Promise<MemberRow[]> {
   await requireOrgRole(userId, orgId, "member", db);
   const rows = await db.select({
     userId: users.id, name: users.name, email: users.email, image: users.image, role: organizationMembers.role,
     permissions: organizationMembers.permissions, joinedAt: organizationMembers.createdAt, timeZone: users.timeZone,
+    status: users.status, lastActiveAt: users.lastActiveAt, managerUserId: organizationMembers.managerUserId,
   }).from(organizationMembers).innerJoin(users, eq(users.id, organizationMembers.userId))
     .where(and(eq(organizationMembers.organizationId, orgId), isNull(users.deletedAt)));
   return rows.sort((a, b) => RANK[b.role] - RANK[a.role] || a.name.localeCompare(b.name));
@@ -312,6 +317,8 @@ export async function inviteMember(actorId: string, orgId: string, input: { emai
   const actor = await requireOrgPermission(actorId, orgId, "members.invite", db);
   const email = String(input.email ?? "").trim().toLowerCase();
   if (!EMAIL_RE.test(email) || email.length > 254) throw new AppError("VALIDATION", "Enter a valid email address", 422, [{ path: "email", message: "Invalid email" }]);
+  // Only company Zoho accounts can sign in, so an outside address could never accept.
+  if (!isCompanyEmail(email)) throw new AppError("VALIDATION", "Invite a company email address: only company Zoho accounts can sign in", 422, [{ path: "email", message: "Not a company email" }]);
   const role: OrgRole = input.role ?? "member";
   if (!(role in RANK)) throw new AppError("VALIDATION", "Invalid role", 422);
   if (RANK[role] > RANK[actor.role] || (role !== "member" && RANK[actor.role] < RANK.admin))

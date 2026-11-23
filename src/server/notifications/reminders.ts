@@ -4,6 +4,7 @@
  * several workers never double-send, and notification dedupe keys make any replay a no-op.
  */
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { DateTime } from "luxon";
 import { db } from "@/server/db";
 import { bookings, eventTypes, invitees, notificationLogs, reminders, users } from "@/server/db/schema";
 import { enqueueNotificationJob } from "./service";
@@ -11,19 +12,27 @@ import { dedupeKey } from "@/server/queue/backoff";
 
 export interface PlannedReminder { minutesBefore: number; sendAt: Date }
 
+/** Sentinel in event_type.reminders: "9:00 AM on the day of the meeting" (in the zone passed to planReminders). */
+export const MORNING_OF = 0;
+const MORNING_HOUR = 9;
+
 /** Pure: which reminders should exist for a booking starting at `startsAt`. Past ones are skipped. */
-export function planReminders(startsAt: Date, minutesList: readonly number[], now: Date = new Date()): PlannedReminder[] {
+export function planReminders(startsAt: Date, minutesList: readonly number[], now: Date = new Date(), timeZone?: string): PlannedReminder[] {
   const uniq = [...new Set(minutesList.filter((m) => Number.isInteger(m) && m > 0 && m <= 60 * 24 * 60))].sort((a, b) => b - a);
-  return uniq
-    .map((m) => ({ minutesBefore: m, sendAt: new Date(startsAt.getTime() - m * 60_000) }))
-    .filter((r) => r.sendAt.getTime() > now.getTime());
+  const plan = uniq.map((m) => ({ minutesBefore: m, sendAt: new Date(startsAt.getTime() - m * 60_000) }));
+  if (timeZone && minutesList.includes(MORNING_OF)) {
+    const at9 = DateTime.fromJSDate(startsAt, { zone: timeZone }).startOf("day").set({ hour: MORNING_HOUR });
+    // Skip when the meeting is within an hour of 9:00 (or earlier): a "this morning" mail would be redundant noise.
+    if (at9.isValid && at9.toMillis() <= startsAt.getTime() - 60 * 60_000) plan.unshift({ minutesBefore: MORNING_OF, sendAt: at9.toJSDate() });
+  }
+  return plan.filter((r) => r.sendAt.getTime() > now.getTime());
 }
 
 export async function createRemindersForBooking(bookingId: string, now = new Date()): Promise<number> {
   const [row] = await db.select({ b: bookings, minutes: eventTypes.reminders })
     .from(bookings).innerJoin(eventTypes, eq(eventTypes.id, bookings.eventTypeId)).where(eq(bookings.id, bookingId));
   if (!row || row.b.status !== "confirmed") return 0;
-  const plan = planReminders(row.b.startsAt, row.minutes ?? [], now);
+  const plan = planReminders(row.b.startsAt, row.minutes ?? [], now, row.b.inviteeTimeZone);
   if (!plan.length) return 0;
   const ins = await db.insert(reminders)
     .values(plan.map((p) => ({ bookingId, minutesBefore: p.minutesBefore, sendAt: p.sendAt })))

@@ -3,6 +3,7 @@ import { db, schema } from "@/server/db";
 import { getProvider } from "./provider";
 import { decodeCreds, withCalendarToken } from "./tokens";
 import { http } from "./http";
+import { zohoHost } from "./config";
 import type { CalendarProviderName } from "./types";
 
 /** On disconnect: stop push channels/subscriptions and revoke the Google token. Never throws. */
@@ -22,6 +23,15 @@ export async function revokeBestEffort(connectedCalendarId: string, provider: Ca
       if (row) {
         const c = decodeCreds(row.enc);
         await http("https://oauth2.googleapis.com/revoke", { form: { token: c.refreshToken ?? c.accessToken } }).catch(() => undefined);
+      }
+    } catch { /* ignore */ }
+  }
+  if (provider === "zoho") {
+    try {
+      const [row] = await db.select({ enc: schema.connectedCalendars.credentialsEnc }).from(schema.connectedCalendars).where(eq(schema.connectedCalendars.id, connectedCalendarId));
+      if (row) {
+        const c = decodeCreds(row.enc);
+        await http(`${zohoHost("accounts")}/oauth/v2/token/revoke?token=${encodeURIComponent(c.refreshToken ?? c.accessToken)}`, { method: "POST" }).catch(() => undefined);
       }
     } catch { /* ignore */ }
   }

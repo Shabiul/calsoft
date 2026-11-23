@@ -53,14 +53,11 @@ async function Content({ params }: P) {
         <CardHeader><CardTitle className="text-xl">Join {inv.orgName}</CardTitle><CardDescription>{intro}</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            {inv.accountExists ? `Sign in as ${inv.email} to accept.` : `Create an account with ${inv.email} to accept.`}
+            {`Sign in with the company Zoho account ${inv.email} to accept.`}
           </p>
           <div className="flex flex-col gap-2">
-            <Link href={inv.accountExists ? `/login?next=${next}` : `/signup?next=${next}`} className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground hover:opacity-90">
-              {inv.accountExists ? "Sign in to accept" : "Create account to accept"}
-            </Link>
-            <Link href={inv.accountExists ? `/signup?next=${next}` : `/login?next=${next}`} className="text-center text-sm text-brand hover:underline">
-              {inv.accountExists ? "Need a different account? Sign up" : "Already have an account? Sign in"}
+            <Link href={`/login?next=${next}`} className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground hover:opacity-90">
+              Sign in with Zoho to accept
             </Link>
           </div>
         </CardContent>

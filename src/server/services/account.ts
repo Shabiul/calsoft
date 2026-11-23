@@ -6,6 +6,7 @@ import { AppError } from "@/server/errors";
 import { validateUsername } from "@/lib/username";
 import { checkUsername } from "./username";
 import { deleteAvatarByUrl } from "@/server/storage/avatars";
+import { cancelBooking } from "./booking";
 
 const { users, sessions, bookings, bookingEvents } = schema;
 
@@ -68,6 +69,14 @@ export async function exportUserData(userId: string, db: Db = defaultDb) {
 export async function deleteAccount(userId: string, db: Db = defaultDb) {
   const [u] = await db.select({ image: users.image }).from(users).where(eq(users.id, userId));
   const now = new Date();
+  // Cancel future hosted bookings through the normal path BEFORE the profile is anonymised: invitees get the cancellation email,
+  // the calendar events / meeting links are removed and webhooks fire. (A raw row update would leave them with a live invite.)
+  const upcoming = await db.select({ id: bookings.id }).from(bookings)
+    .where(and(eq(bookings.hostUserId, userId), gt(bookings.startsAt, now), inArray(bookings.status, ["confirmed", "pending_payment", "pending_confirmation"])));
+  for (const b of upcoming) {
+    try { await cancelBooking({ bookingId: b.id, actor: "host", actorId: userId, reason: "The host closed their account." }); }
+    catch (e) { console.error("[deleteAccount] could not cancel booking", b.id, e instanceof Error ? e.message : e); } // the safety net below still cancels it
+  }
   await db.transaction(async (tx) => {
     const future = await tx.select({ id: bookings.id }).from(bookings)
       .where(and(eq(bookings.hostUserId, userId), gt(bookings.startsAt, now), inArray(bookings.status, ["confirmed", "pending_payment", "pending_confirmation"])));

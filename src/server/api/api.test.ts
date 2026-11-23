@@ -89,6 +89,16 @@ describe("auth", () => {
     expect(r.status).toBe(403);
     expect(await errCode(r)).toBe("ACCOUNT_SUSPENDED");
   });
+  it("blocks benched owners and owners outside the company domains", async () => {
+    for (const [n, email, status] of [["bench", "example.test", "benched"], ["ext", "outsider.test", "active"]] as const) {
+      const id = uid(n);
+      await db.insert(schema.users).values({ id, name: n, email: `${id}@${email}`, status });
+      userIds.push(id);
+      const { key } = await createApiKey(id, { name: n, scopes: ["event_types:read"] });
+      const r = await call(events.GET, "/events", { key });
+      expect(r.status).toBe(403);
+    }
+  });
 });
 
 describe("scopes", () => {

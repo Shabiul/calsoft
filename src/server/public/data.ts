@@ -56,7 +56,7 @@ export const safeUrl = (u: string | null | undefined): string | null => {
 const safeHttpUrl = (u: string | null | undefined) => (u && !u.startsWith("/") ? safeUrl(u) : null);
 
 export const LOCATION_LABELS: Record<string, string> = {
-  google_meet: "Google Meet", zoom: "Zoom", teams: "Microsoft Teams", custom_url: "Online meeting",
+  google_meet: "Google Meet", zoom: "Zoom", teams: "Microsoft Teams", zoho_meeting: "Zoho Meeting", custom_url: "Online meeting",
   in_person: "In person", phone: "Phone call", invitee_phone: "Phone call (host calls you)",
 };
 

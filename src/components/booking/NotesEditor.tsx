@@ -40,7 +40,7 @@ export function NotesEditor({ token, initial, initialUpdatedAt }: { token: strin
         </div>
       )}
       <textarea
-        className="mf-input" aria-label="Shared meeting notes" value={text} rows={14} maxLength={100_000}
+        className="mf-input" aria-label="Meeting notes" value={text} rows={14} maxLength={100_000}
         placeholder="Agenda, talking points, decisions... Everyone with this link can read and edit."
         onChange={(e) => { setText(e.target.value); if (status !== "conflict") setStatus("dirty"); }}
         style={{ width: "100%", minHeight: 260, resize: "vertical", fontFamily: "inherit", lineHeight: 1.6 }}

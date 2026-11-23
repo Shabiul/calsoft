@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { authClient } from "@/lib/auth-client";
 import { deleteAccountAction } from "../actions";
 
-export function DataSection({ email, hasPassword }: { email: string; hasPassword: boolean }) {
+export function DataSection({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +41,9 @@ export function DataSection({ email, hasPassword }: { email: string; hasPassword
             <DialogTrigger asChild><Button variant="destructive">Delete my account</Button></DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>Delete your account?</DialogTitle>
-                <DialogDescription>{hasPassword ? "Enter your password to confirm." : `Type ${email} to confirm.`}</DialogDescription></DialogHeader>
-              <div className="grid gap-1.5"><Label htmlFor="del">{hasPassword ? "Password" : "Email"}</Label>
-                <Input id="del" type={hasPassword ? "password" : "text"} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></div>
+                <DialogDescription>{`Type ${email} to confirm.`}</DialogDescription></DialogHeader>
+              <div className="grid gap-1.5"><Label htmlFor="del">Email</Label>
+                <Input id="del" type="text" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" /></div>
               {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>

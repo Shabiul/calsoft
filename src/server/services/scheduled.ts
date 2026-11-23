@@ -10,6 +10,7 @@
 import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { db as defaultDb, schema, type Db } from "@/server/db";
 import { AppError } from "@/server/errors";
+import { randomToken } from "@/lib/crypto";
 import { approveBooking, cancelBooking, createBooking, declineBooking, markBooking, rescheduleBooking } from "./booking";
 import { getEventType } from "./event-types";
 import { meetLinkExpected } from "@/server/integrations/meet-pending";
@@ -29,7 +30,10 @@ const ACTIVE = ["confirmed", "pending_payment", "pending_confirmation"] as const
 /** Rows I host (not linked) OR org rows I may see (not linked) OR primaries of collective rows I host. */
 function visible(userId: string): SQL {
   return sql`(
-    ((${B.hostUserId} = ${userId} or ${B.organizationId} in (
+    ((${B.hostUserId} = ${userId}
+      -- the scheduler keeps access only while still a member of the team of the booking (an ex-member must not)
+      or (${B.scheduledByUserId} = ${userId} and ${B.organizationId} in (select m.organization_id from organization_member m where m.user_id = ${userId}))
+      or ${B.organizationId} in (
         select m.organization_id from organization_member m
         where m.user_id = ${userId} and (m.role in ('owner','admin') or m.permissions ? 'bookings.view_all')))
       and not (${LINKED}))
@@ -257,6 +261,8 @@ export interface ScheduleMeetingInput {
   invitee: { name: string; email: string; phone?: string | null };
   /** Additional attendees (emails) invited to the meeting. */
   guests?: string[];
+  /** Internal meeting context for the host/team (never sent to the invitee). */
+  context?: string;
 }
 /** The host books a meeting on behalf of an invitee and invites extra attendees. Goes through the normal booking path (slot checks, calendar/Meet, emails). */
 export async function scheduleMeeting(userId: string, input: ScheduleMeetingInput) {
@@ -264,9 +270,19 @@ export async function scheduleMeeting(userId: string, input: ScheduleMeetingInpu
   const res = await createBooking({
     eventTypeId: input.eventTypeId, startsAt: input.startsAt,
     invitee: { ...input.invitee, timeZone: input.timeZone },
-    guests: input.guests, actor: "host", actorId: userId,
+    guests: input.guests, actor: "host", actorId: userId, hostNotes: input.context, scheduledByUserId: userId,
   });
   return { bookingId: res.booking.id, meetPending: await meetLinkExpected(res.booking) };
+}
+
+/** Creates a single-use personal booking link carrying internal meeting context. Returns the token for `?ctx=`. */
+export async function createContextLink(userId: string, eventTypeId: string, notes: string, db: Db = defaultDb): Promise<string> {
+  await getEventType({ userId }, eventTypeId);
+  const clean = notes.trim().slice(0, 5000);
+  if (!clean) throw new AppError("VALIDATION", "Write the meeting context first", 422);
+  const token = randomToken(18); // 24 url-safe chars
+  await db.insert(schema.meetingContexts).values({ token, eventTypeId, createdByUserId: userId, notes: clean });
+  return token;
 }
 
 /** Current Meet/meeting link of a booking the user can access (polled while the link is being created). */

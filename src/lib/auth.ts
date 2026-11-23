@@ -2,23 +2,25 @@ import { eq } from "drizzle-orm";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { twoFactor } from "better-auth/plugins";
+import { genericOAuth } from "better-auth/plugins";
 import { APIError } from "better-auth/api";
 import { db, schema } from "@/server/db";
 import { APP_NAME } from "./brand";
-import { authEmailTemplate, emailConfigured, sendAuthEmail } from "./auth-email";
+import { isCompanyEmail } from "./company-email";
+import { zohoHost } from "@/server/integrations/config";
 import { checkUsername, claimFreeUsername } from "@/server/services/username";
 import { slugifyUsername, validateUsername } from "./username";
 
 const baseURL = process.env.BETTER_AUTH_URL || process.env.APP_URL || "http://localhost:3000";
-const verificationRequired = emailConfigured(); // dev without a mail provider: sign-in works, links are logged to console
-
-const google = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-  ? { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET } : undefined;
-const microsoft = process.env.MICROSOFT_CLIENT_ID && process.env.MICROSOFT_CLIENT_SECRET
-  ? { clientId: process.env.MICROSOFT_CLIENT_ID, clientSecret: process.env.MICROSOFT_CLIENT_SECRET, tenantId: process.env.MICROSOFT_TENANT_ID || "common" } : undefined;
-
-export const enabledSocialProviders = { google: Boolean(google), microsoft: Boolean(microsoft) };
+/**
+ * Sign-in is ONLY "Continue with Zoho" with a company email (ALLOWED_EMAIL_DOMAINS). There is no sign-up form and no password
+ * login: an employee's first Zoho sign-in creates their account; anyone else is refused. Existing accounts are linked by email.
+ * Zoho redirect URI to register: <APP_URL>/api/auth/callback/zoho (same Zoho client as the calendar integration).
+ */
+const zohoClient = process.env.ZOHO_CLIENT_ID && process.env.ZOHO_CLIENT_SECRET
+  ? { clientId: process.env.ZOHO_CLIENT_ID, clientSecret: process.env.ZOHO_CLIENT_SECRET } : null;
+export const zohoLoginEnabled = Boolean(zohoClient);
+const NOT_COMPANY = "Only company Zoho accounts can sign in. Use your work email.";
 
 export const auth = betterAuth({
   appName: APP_NAME,
@@ -33,36 +35,8 @@ export const auth = betterAuth({
       verification: schema.verifications, twoFactor: schema.twoFactors,
     },
   }),
-  emailAndPassword: {
-    enabled: true,
-    minPasswordLength: 8,
-    maxPasswordLength: 128,
-    requireEmailVerification: verificationRequired,
-    autoSignIn: true,
-    resetPasswordTokenExpiresIn: 60 * 60,
-    sendResetPassword: async ({ user, url }) => {
-      await sendAuthEmail({
-        to: user.email, subject: `Reset your ${APP_NAME} password`,
-        ...authEmailTemplate({ heading: "Reset your password", body: "We received a request to reset your password. This link expires in 1 hour. If you did not request it, you can ignore this email.", cta: "Reset password", url }),
-      });
-    },
-  },
-  emailVerification: {
-    sendOnSignUp: true,
-    autoSignInAfterVerification: true,
-    expiresIn: 60 * 60 * 24,
-    sendVerificationEmail: async ({ user, url }) => {
-      await sendAuthEmail({
-        to: user.email, subject: `Verify your ${APP_NAME} email`,
-        ...authEmailTemplate({ heading: "Confirm your email", body: `Welcome to ${APP_NAME}! Confirm your email address to finish setting up your account.`, cta: "Verify email", url }),
-      });
-    },
-  },
-  socialProviders: {
-    ...(google ? { google } : {}),
-    ...(microsoft ? { microsoft } : {}),
-  },
-  account: { accountLinking: { enabled: true, trustedProviders: ["google", "microsoft"] } },
+  emailAndPassword: { enabled: false }, // no password sign-up / sign-in / reset: Zoho only
+  account: { accountLinking: { enabled: true, trustedProviders: ["zoho"] } },
   user: {
     additionalFields: {
       username: { type: "string", required: false, input: true },
@@ -82,6 +56,7 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
+          if (!isCompanyEmail(user.email)) throw new APIError("FORBIDDEN", { message: NOT_COMPANY });
           const raw = (user as { username?: string | null }).username;
           let username: string;
           if (raw) {
@@ -114,11 +89,14 @@ export const auth = betterAuth({
     session: {
       create: {
         before: async (session) => {
-          const [u] = await db.select({ status: schema.users.status, deletedAt: schema.users.deletedAt })
+          const [u] = await db.select({ status: schema.users.status, deletedAt: schema.users.deletedAt, email: schema.users.email, role: schema.users.platformRole })
             .from(schema.users).where(eq(schema.users.id, session.userId)).limit(1);
-          if (u && (u.deletedAt || u.status === "suspended")) {
+          if (!u || u.deletedAt || u.status === "suspended") {
             throw new APIError("FORBIDDEN", { message: "This account is disabled." });
           }
+          // Every sign-in, not only the first: an account whose email is (no longer) on a company domain is refused.
+          // Platform superadmins are exempt so the operator cannot be locked out by a domain change.
+          if (u.role !== "superadmin" && !isCompanyEmail(u.email)) throw new APIError("FORBIDDEN", { message: NOT_COMPANY });
         },
       },
     },
@@ -129,15 +107,34 @@ export const auth = betterAuth({
     window: 60,
     max: 120,
     customRules: {
-      "/sign-in/email": { window: 60, max: 10 },
-      "/sign-up/email": { window: 60, max: 10 },
-      "/request-password-reset": { window: 60, max: 5 },
-      "/forget-password": { window: 60, max: 5 },
-      "/send-verification-email": { window: 60, max: 5 },
-      "/two-factor/verify-totp": { window: 60, max: 10 },
+      "/sign-in/social": { window: 60, max: 20 },
     },
   },
-  plugins: [twoFactor({ issuer: APP_NAME }), nextCookies()],
+  plugins: [
+    ...(zohoClient ? [genericOAuth({
+      config: [{
+        providerId: "zoho", name: "Zoho",
+        ...zohoClient,
+        // Hosts follow the account's data center (ZOHO_DC), like the calendar integration.
+        authorizationUrl: `${zohoHost("accounts")}/oauth/v2/auth`,
+        tokenUrl: `${zohoHost("accounts")}/oauth/v2/token`,
+        scopes: ["AaaServer.profile.READ"],
+        authentication: "post",
+        pkce: false,
+        // Account identity is the immutable Zoho user id (ZUID), not the email.
+        getUserInfo: async (tokens) => {
+          const r = await fetch(`${zohoHost("accounts")}/oauth/user/info`, { headers: { Authorization: `Zoho-oauthtoken ${tokens.accessToken}` } });
+          if (!r.ok) return null;
+          const p = (await r.json()) as { ZUID?: string | number; Email?: string; Display_Name?: string; First_Name?: string; Last_Name?: string };
+          if (p.ZUID == null || !p.Email) return null;
+          const name = p.Display_Name || [p.First_Name, p.Last_Name].filter(Boolean).join(" ") || p.Email.split("@")[0]!;
+          // Zoho only lets an address onto an account after verifying it (or the org admin created the mailbox).
+          return { id: String(p.ZUID), email: p.Email.toLowerCase(), name, emailVerified: true };
+        },
+      }],
+    })] : []),
+    nextCookies(),
+  ],
 });
 
 export type Auth = typeof auth;

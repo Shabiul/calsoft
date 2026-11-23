@@ -1,11 +1,12 @@
 "use client";
 import * as React from "react";
 import Link from "next/link";
-import { Check, Code2, Copy, ExternalLink, Link2, Mail, Share2 } from "lucide-react";
+import { Check, Code2, Copy, ExternalLink, Link2, Mail, NotebookPen, Share2 } from "lucide-react";
 import {
-  Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-  Tabs, TabsContent, TabsList, TabsTrigger, toast,
+  Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  EmptyState, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast,
 } from "@/components/ui";
+import { createContextLinkAction } from "@/app/(app)/dashboard/scheduled/actions";
 import { copyText } from "./copy";
 
 export type BookingLinkItem = { id: string; title: string; durationMinutes: number; color: string | null; group: string; path: string | null; embedPath: string | null; isActive: boolean; isOneOff: boolean };
@@ -18,6 +19,58 @@ function CopyButton({ text, label = "Copy", disabled }: { text: string; label?: 
     }}>
       {done ? <Check /> : <Copy />} {done ? "Copied" : label}
     </Button>
+  );
+}
+
+/**
+ * Personal link for one prospect with internal meeting context. The context is stored on the server; the link only carries a
+ * token (plus the prospect's own name/email to prefill the form). Single use: the first booking made through it gets the context.
+ */
+function ContextLinkDialog({ item, url, onClose }: { item: BookingLinkItem; url: string; onClose: () => void }) {
+  const [name, setName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [link, setLink] = React.useState("");
+  const [pending, start] = React.useTransition();
+  const create = () => start(async () => {
+    const r = await createContextLinkAction(item.id, notes);
+    if (!r.ok) { toast.error(r.error.message); return; }
+    const q = new URLSearchParams({ ctx: r.data.token });
+    if (name.trim()) q.set("name", name.trim());
+    if (email.trim()) q.set("email", email.trim());
+    setLink(`${url}?${q}`);
+  });
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Link with meeting context: {item.title}</DialogTitle>
+          <DialogDescription>Write what the meeting is about. Send the link to the prospect, or open it and book the time yourself. The context is saved on the booking for you and your team only; the prospect never sees it.</DialogDescription>
+        </DialogHeader>
+        {link ? (
+          <div className="space-y-3">
+            <Input readOnly value={link} aria-label="Personal booking link" onFocus={(e) => e.currentTarget.select()} />
+            <div className="flex flex-wrap gap-2">
+              <CopyButton text={link} label="Copy link" />
+              <Button asChild size="sm"><a href={link} target="_blank" rel="noreferrer">Open &amp; book now</a></Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => { setLink(""); setNotes(""); setName(""); setEmail(""); }}>Make another</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Works for one booking. After that the link still opens the booking page, without the context.</p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5"><Label htmlFor="cl-name">Prospect name (optional)</Label><Input id="cl-name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} /></div>
+              <div className="grid gap-1.5"><Label htmlFor="cl-email">Prospect email (optional)</Label><Input id="cl-email" type="email" value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} /></div>
+            </div>
+            <div className="grid gap-1.5"><Label htmlFor="cl-notes">Meeting context (internal)</Label>
+              <Textarea id="cl-notes" rows={4} maxLength={5000} value={notes} onChange={(e) => setNotes(e.target.value)}
+                placeholder="Who they are, what they need, where the deal stands." /></div>
+            <Button className="justify-self-start" loading={pending} disabled={!notes.trim()} onClick={create}>Create link</Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -40,6 +93,7 @@ export function BookingLinks({ items, origin, hasUsername }: { items: BookingLin
   const [color, setColor] = React.useState("#4f46e5");
   const browserOrigin = React.useSyncExternalStore(() => () => {}, () => window.location.origin, () => "");
   const liveOrigin = origin || browserOrigin;
+  const [contextFor, setContextFor] = React.useState<BookingLinkItem | null>(null);
 
   if (items.length === 0) {
     return (
@@ -79,6 +133,7 @@ export function BookingLinks({ items, origin, hasUsername }: { items: BookingLin
                 <div className="flex items-center gap-2">
                   <CopyButton text={i.path ? fullUrl(i.path) : ""} label="Copy link" disabled={!i.path} />
                   {i.path ? <Button asChild variant="ghost" size="icon" aria-label={`Open ${i.title}`}><a href={i.path} target="_blank" rel="noreferrer"><ExternalLink /></a></Button> : null}
+                  <Button type="button" variant="ghost" size="sm" disabled={!i.path || !i.isActive} onClick={() => setContextFor(i)}><NotebookPen /> Link with context</Button>
                   <Button type="button" variant="ghost" size="sm" disabled={!i.path} onClick={() => { setSelectedId(i.id); document.getElementById("share-embed")?.scrollIntoView({ behavior: "smooth" }); }}><Share2 /> Share / embed</Button>
                 </div>
               </li>
@@ -86,6 +141,8 @@ export function BookingLinks({ items, origin, hasUsername }: { items: BookingLin
           </ul>
         </section>
       ))}
+
+      {contextFor?.path && <ContextLinkDialog item={contextFor} url={fullUrl(contextFor.path)} onClose={() => setContextFor(null)} />}
 
       <Card id="share-embed">
         <CardHeader>

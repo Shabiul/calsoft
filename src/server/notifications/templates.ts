@@ -43,7 +43,8 @@ export function buildVars(ctx: BookingContext, role: Role, extra: RenderExtra = 
     manage_url: manage, cancel_reason: ctx.booking.cancelReason ?? "",
     previous_start_time: extra.previousStartsAt ? formatWhen(new Date(extra.previousStartsAt), tz) : "",
     dashboard_url: `${appUrl()}/dashboard/scheduled?b=${ctx.booking.id}`,
-    notes_url: ["confirmed", "completed"].includes(ctx.booking.status) ? notesUrl(ctx.booking.id) : "",
+    // Meeting notes are private to the host: invitee emails never carry the link.
+    notes_url: role === "host" && ["confirmed", "completed"].includes(ctx.booking.status) ? notesUrl(ctx.booking.id) : "",
     decline_reason: ctx.booking.cancelReason ?? "",
     amount: ctx.payment ? formatMoney(ctx.payment.amount, ctx.payment.currency) : "",
   };
@@ -83,12 +84,14 @@ function details(v: Record<string, string>, role: Role, brand = DEFAULT_BRAND, c
   const attendees = ctx?.attendees?.length ? ctx.attendees : [{ name: v.invitee_name, email: v.invitee_email }];
   rows.push({ k: attendees.length > 1 ? "Attendees" : role === "host" ? "Invitee" : "Attendee", val: "", people: attendees });
   const meetUrl = safeUrl(v.meeting_url);
-  if (meetUrl) rows.push({ k: "Where", val: "Google Meet", href: meetUrl });
+  if (meetUrl) rows.push({ k: "Where", val: ({ google_meet: "Google Meet", zoom: "Zoom", teams: "Microsoft Teams", zoho_meeting: "Zoho Meeting" } as Record<string, string>)[ctx?.booking.locationType ?? ""] ?? "Online meeting", href: meetUrl });
   else if (v.location) rows.push({ k: "Where", val: v.location });
   const notes = safeUrl(v.notes_url);
-  if (notes) rows.push({ k: "Notes", val: "Shared meeting notes", href: notes });
+  if (notes) rows.push({ k: "Notes", val: "Meeting notes (only you)", href: notes });
   if (ctx?.eventType.description?.trim()) rows.push({ k: "About", val: ctx.eventType.description.trim().slice(0, 600) });
   if (role === "host") for (const a of ctx?.answers ?? []) rows.push({ k: a.question.slice(0, 60), val: a.answer.slice(0, 500) });
+  // Internal meeting context written by the salesperson: host emails only.
+  if (role === "host" && ctx?.booking.hostNotes?.trim()) rows.push({ k: "Context", val: ctx.booking.hostNotes.trim().slice(0, 2000) });
   const person = (p: Person) => `<div style="margin:0 0 6px"><div style="font-size:15px;color:#111827">${escapeHtml(p.name)}</div><a href="mailto:${escapeHtml(p.email)}" style="font-size:13px;color:#6b7280;text-decoration:none">${escapeHtml(p.email)}</a></div>`;
   const cell = ({ k, val, href, people }: DetailRow) => {
     const body = href
@@ -206,6 +209,9 @@ export function renderNotification(kind: NotificationKind, ctx: BookingContext, 
         ics: "CANCEL", links: false, extraHtml: why ? `<p>${escapeHtml(why)}</p>` : "", extraText: why,
       });
     }
+    case "host_changed":
+      return compose(`New host: ${v.event_title} with ${v.host_name}`,
+        `Your meeting now takes place with ${v.host_name}. The time and your join link stay the same.`, { series: false, ics: "REQUEST" });
     case "reschedule": {
       const prev = v.previous_start_time ? `Previously: ${v.previous_start_time}` : "";
       return compose(`Rescheduled: ${v.event_title} with ${who}`, "The booking has been moved to a new time.", { series: false,
@@ -214,6 +220,7 @@ export function renderNotification(kind: NotificationKind, ctx: BookingContext, 
     }
     case "reminder": {
       const m = extra.minutesBefore ?? 0;
+      if (m === 0) return compose(`Today: ${v.event_title} with ${who} at ${v.start_time}`, `This is a reminder that you have a meeting today at ${v.start_time}.`, { series: false });
       const when = m >= 1440 && m % 1440 === 0 ? `${m / 1440} day${m === 1440 ? "" : "s"}`
         : m >= 60 && m % 60 === 0 ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} minutes`;
       return compose(`Reminder: ${v.event_title} with ${who} in ${when}`, "This is a reminder about your upcoming meeting.", { series: false });
@@ -246,10 +253,14 @@ export function renderNotification(kind: NotificationKind, ctx: BookingContext, 
     case "workflow": {
       const subject = renderString(extra.subject ?? v.event_title, v).replace(/[\r\n]+/g, " ").slice(0, 200);
       const body = extra.body ?? "";
+      // The invite goes to the invitee only (the host already has the event on their own calendar; attaching it makes Gmail show
+      // "Unable to load event"). A cancelled booking gets a cancellation invite that removes the event from their calendar.
+      const attach = extra.attachIcs && role === "invitee" ? icsFor(ctx, ctx.booking.status === "cancelled" ? "CANCEL" : "REQUEST", v) : undefined;
       return {
         subject,
-        html: layout(subject, `<div>${renderString(body, v, true)}</div>`),
+        html: layout(subject, `<div style="white-space:pre-wrap">${renderString(body, v, true)}</div>`, brand, ctx.branding?.logoUrl),
         text: renderString(body, v),
+        attachments: attach,
       };
     }
   }

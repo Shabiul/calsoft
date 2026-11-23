@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
       idempotencyKey: body.idempotencyKey,
       guests: body.guests, // stored as extra invitees before booking events fire, so every attendee gets the emails/invites
       actor: "invitee",
+      contextToken: body.context,
     });
 
     const b = res.booking;

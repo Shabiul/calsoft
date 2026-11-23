@@ -102,3 +102,18 @@ Webhook endpoints (registered automatically through the APIs; nothing to paste i
 - Collective and round-robin events create the external event only for the booking's `host_user_id`.
 - The busy cache window is now-1 day .. +120 days; the live check covers anything beyond it only when callers query that range.
 - Zoom meeting creation is not idempotent on Zoom's side; a crash between creating the meeting and saving its id can orphan one meeting.
+
+## Zoho (Calendar + Meeting)
+
+One OAuth grant covers Zoho Calendar (busy times, booking events) and Zoho Meeting (video links, location type "Zoho Meeting").
+Zoho has separate data centers; the app must talk to the one the account lives in.
+
+1. https://api-console.zoho.com (use the console for your region, e.g. https://api-console.zoho.in) -> **Add Client** -> **Server-based Applications**.
+2. Authorized redirect URI: `https://app.example.com/api/integrations/zoho/callback` (your `APP_URL`, no trailing slash).
+3. Copy the client id/secret into `ZOHO_CLIENT_ID` / `ZOHO_CLIENT_SECRET` and set `ZOHO_DC` to the region: `com` (US, default), `in` (India), `eu`, `com.au`, `jp`, `ca`, `sa`, `uk`.
+   Set these on **both** the web app and the worker (the worker creates events/meetings and refreshes tokens).
+4. Scopes requested: `ZohoCalendar.calendar.ALL`, `ZohoCalendar.event.ALL`, `ZohoCalendar.freebusy.READ`, `ZohoMeeting.meeting.ALL`, `ZohoMeeting.manageOrg.READ`, `AaaServer.profile.READ`.
+5. The account needs Zoho Meeting enabled for Zoho Meeting links; Zoho Calendar works without it.
+6. Zoho cannot push change notifications to our webhook, so Zoho calendars are polled every ~10 minutes (and re-checked live at booking time).
+
+The Integrations page recommends providers from the signed-in user's email: Gmail or a Google Workspace domain -> Google, Outlook/Microsoft 365 -> Microsoft, Zoho Mail -> Zoho (business domains are identified from their MX records). Every provider stays available under "Other options".

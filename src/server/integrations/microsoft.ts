@@ -9,7 +9,8 @@ const cal = (id: string) => `${G}/me/calendars/${encodeURIComponent(id)}`;
 const SUB_MINUTES = 4200;
 
 interface GEvent {
-  id: string; showAs?: string; isCancelled?: boolean; categories?: string[];
+  id: string; showAs?: string; isCancelled?: boolean; isAllDay?: boolean; categories?: string[];
+  responseStatus?: { response?: string };
   start?: { dateTime: string }; end?: { dateTime: string };
   onlineMeeting?: { joinUrl?: string } | null; onlineMeetingUrl?: string | null;
   "@removed"?: unknown;
@@ -22,10 +23,17 @@ const OWN_CATEGORY = "MeetFlow";
 
 function toBusy(e: GEvent): Interval | null {
   if (e["@removed"] || e.isCancelled) return null;
-  if (e.showAs === "free") return null;
+  if (e.showAs === "free" || e.showAs === "workingElsewhere") return null; // tentative / busy / oof block; free and "working elsewhere" do not
+  if (e.responseStatus?.response === "declined") return null; // an invite the host declined does not block time
   if (e.categories?.includes(OWN_CATEGORY)) return null;
   const start = parseUtc(e.start?.dateTime), end = parseUtc(e.end?.dateTime);
-  return start && end && end > start ? { start, end } : null;
+  if (!start || !end || end <= start) return null;
+  // All-day events are dates (Graph returns them as midnight-to-midnight in the requested zone): resolved to the host's local days later.
+  if (e.isAllDay) {
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    return { start, end, allDay: { startDate: day(start), endDate: day(end) } };
+  }
+  return { start, end };
 }
 
 function eventBody(input: EventInput) {
@@ -63,7 +71,7 @@ export const microsoftProvider: CalendarProvider = {
 
   async getBusyIntervals(token, calendarId, from, to) {
     const out: Interval[] = [];
-    let url: string | undefined = `${cal(calendarId)}/calendarView?startDateTime=${encodeURIComponent(from.toISOString())}&endDateTime=${encodeURIComponent(to.toISOString())}&$select=id,showAs,isCancelled,start,end,categories&$top=200`;
+    let url: string | undefined = `${cal(calendarId)}/calendarView?startDateTime=${encodeURIComponent(from.toISOString())}&endDateTime=${encodeURIComponent(to.toISOString())}&$select=id,showAs,isCancelled,isAllDay,responseStatus,start,end,categories&$top=200`;
     while (url) {
       const r: Page<GEvent> = await http(url, { token, headers: UTC });
       for (const e of r.value ?? []) { const b = toBusy(e); if (b) out.push(b); }

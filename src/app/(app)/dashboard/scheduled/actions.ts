@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth-session";
 import { runAction, type ActionResult } from "@/lib/validation/action-result";
 import { AppError } from "@/server/errors";
-import { approveScheduled, cancelScheduled, declineScheduled, getRescheduleSlots, markScheduled, rescheduleScheduled, scheduleMeeting, getScheduleSlots, getMeetingUrl, setHostNotes } from "@/server/services/scheduled";
+import { approveScheduled, cancelScheduled, declineScheduled, getRescheduleSlots, markScheduled, rescheduleScheduled, scheduleMeeting, getScheduleSlots, getMeetingUrl, setHostNotes, createContextLink } from "@/server/services/scheduled";
 
 const uuid = z.string().uuid();
 function parse<T>(schema: z.ZodType<T>, v: unknown): T {
@@ -90,6 +90,11 @@ export async function getScheduleSlotsAction(eventTypeId: string, fromIso: strin
   return runAction(() => getScheduleSlots(user.id, parse(uuid, eventTypeId), new Date(parse(z.iso.datetime({ offset: true }), fromIso)), new Date(parse(z.iso.datetime({ offset: true }), toIso)), parse(tz, timeZone)));
 }
 
+export async function createContextLinkAction(eventTypeId: string, notes: string): Promise<ActionResult<{ token: string }>> {
+  const user = await requireUser();
+  return runAction(async () => ({ token: await createContextLink(user.id, parse(uuid, eventTypeId), parse(z.string().max(5000), notes)) }));
+}
+
 export async function getMeetingUrlAction(bookingId: string): Promise<ActionResult<{ meetingUrl: string | null }>> {
   const user = await requireUser();
   return runAction(async () => ({ meetingUrl: await getMeetingUrl(user.id, parse(uuid, bookingId)) }));
@@ -102,6 +107,7 @@ export async function scheduleMeetingAction(input: unknown): Promise<ActionResul
       eventTypeId: uuid, startsAt: z.iso.datetime({ offset: true }), timeZone: tz,
       invitee: z.object({ name: z.string().trim().min(1, "Name is required").max(120), email, phone: z.string().trim().max(40).optional() }),
       guests: z.array(email).max(10).default([]),
+      context: z.string().max(5000).optional(),
     }), input);
     const r = await scheduleMeeting(user.id, v);
     refresh();

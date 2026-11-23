@@ -11,7 +11,7 @@
  * Side effects (emails, webhooks, workflows) are NOT done here: after commit we call `onBookingEvent`.
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { DateTime } from "luxon";
 import { db, schema, type Db } from "../db";
 import { AppError } from "../errors";
@@ -19,6 +19,7 @@ import { computeSlots, loadEventContext, type EventContext, type Executor } from
 import { defaultBusyProvider, type BusyProvider } from "../scheduling/busy-provider";
 import type { Interval } from "../scheduling/availability";
 import { seriesStarts } from "../scheduling/recurrence";
+import { normalizeTimeZone } from "@/lib/timezone";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type Booking = typeof schema.bookings.$inferSelect;
@@ -63,7 +64,7 @@ export async function onBookingEvent(type: BookingEventType, bookingId: string, 
 export const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 const newToken = () => randomBytes(32).toString("base64url");
 
-function pgCode(e: unknown): string | undefined {
+export function pgCode(e: unknown): string | undefined {
   let cur = e as { code?: string; cause?: unknown } | undefined;
   for (let i = 0; i < 4 && cur; i++) { if (typeof cur.code === "string" && /^[0-9A-Z]{5}$/.test(cur.code)) return cur.code; cur = cur.cause as typeof cur; }
   return undefined;
@@ -102,6 +103,11 @@ export interface CreateBookingInput {
   guests?: string[];
   actor?: Actor;
   actorId?: string;
+  /** Internal meeting context (never shown to invitees) and the team member who scheduled it. */
+  hostNotes?: string | null;
+  scheduledByUserId?: string | null;
+  /** Token of a personal context link (meeting_context): its notes and creator are attached; ignored when unknown or already used. */
+  contextToken?: string;
 }
 export interface BookingResult {
   booking: Booking;
@@ -138,6 +144,8 @@ interface InsertParams {
   eventData?: Record<string, unknown>;
   /** Recurring series membership (all occurrences share the id). */
   seriesId?: string | null;
+  hostNotes?: string | null;
+  scheduledByUserId?: string | null;
 }
 
 /** Inserts the booking row(s) + invitee + answers + history. Returns primary booking + plain token. */
@@ -148,7 +156,6 @@ async function insertBookingGroup(tx: Tx, p: InsertParams): Promise<{ booking: B
   const blockEnd = new Date(end.getTime() + event.bufferAfterMinutes * MIN);
   const token = newToken();
   const primaryId = randomUUID();
-  const paid = !!event.priceAmount && event.priceAmount > 0;
   const email = p.invitee.email.trim().toLowerCase();
   const all: Booking[] = [];
 
@@ -167,6 +174,7 @@ async function insertBookingGroup(tx: Tx, p: InsertParams): Promise<{ booking: B
       rescheduledFromId: p.previous?.get(hostId) ?? null,
       exclusiveSlot: event.kind !== "group",
       seriesId: p.seriesId ?? null,
+      hostNotes: p.hostNotes ?? null, scheduledByUserId: p.scheduledByUserId ?? null,
       holdExpiresAt: p.status === "pending_payment" ? new Date(Date.now() + 15 * MIN) : null,
       externalEventIds: isPrimary ? {} : { collectiveOf: primaryId },
     }).returning();
@@ -261,8 +269,9 @@ export async function createBooking(input: CreateBookingInput, deps: Deps = {}):
   const name = input.invitee.name?.trim(), email = input.invitee.email?.trim().toLowerCase();
   if (!name) throw new AppError("VALIDATION", "Name is required", 400);
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AppError("VALIDATION", "A valid email is required", 400);
-  if (!DateTime.local().setZone(input.invitee.timeZone).isValid) throw new AppError("VALIDATION", "Invalid time zone", 400);
-  const invitee = { ...input.invitee, name, email };
+  const timeZone = normalizeTimeZone(input.invitee.timeZone ?? "");
+  if (!timeZone || !DateTime.local().setZone(timeZone).isValid) throw new AppError("VALIDATION", "Invalid time zone", 400);
+  const invitee = { ...input.invitee, name, email, timeZone };
 
   /** Idempotency covers the whole series: the key lives on occurrence 1; the series is atomic so its siblings exist too. */
   const replayOf = async (b: Booking): Promise<BookingResult> =>
@@ -315,6 +324,14 @@ export async function createBooking(input: CreateBookingInput, deps: Deps = {}):
         if (dup.length) throw new AppError("ALREADY_BOOKED", "You are already registered for this session.", 409);
       }
 
+      // Meeting context: a context link is claimed under a row lock, so one link attaches to exactly one booking.
+      let hostNotes = input.hostNotes?.trim().slice(0, 5000) || null, scheduledByUserId = input.scheduledByUserId ?? null, contextId: string | null = null;
+      if (input.contextToken) {
+        const [c] = await tx.select().from(schema.meetingContexts).where(and(eq(schema.meetingContexts.token, input.contextToken),
+          eq(schema.meetingContexts.eventTypeId, ctx.event.id), isNull(schema.meetingContexts.bookingId))).for("update").limit(1);
+        if (c) { hostNotes = c.notes; scheduledByUserId = c.createdByUserId; contextId = c.id; }
+      }
+
       const status = initialStatus(ctx.event);
       const seriesId = rec ? randomUUID() : null;
       const rows: { booking: Booking; token: string }[] = [];
@@ -322,7 +339,7 @@ export async function createBooking(input: CreateBookingInput, deps: Deps = {}):
         try {
           const g = await insertBookingGroup(tx, {
             ctx, hostIds: plan[i].hostIds, start: plan[i].start, status, invitee, answers,
-            idempotencyKey: i === 0 ? input.idempotencyKey : undefined, actor: input.actor ?? "invitee", seriesId,
+            idempotencyKey: i === 0 ? input.idempotencyKey : undefined, actor: input.actor ?? "invitee", seriesId, hostNotes, scheduledByUserId,
             eventData: rec ? { series: { id: seriesId, index: i, count: plan.length, interval: rec.interval } } : undefined,
           });
           rows.push({ booking: g.booking, token: g.token });
@@ -332,6 +349,7 @@ export async function createBooking(input: CreateBookingInput, deps: Deps = {}):
           throw e;
         }
       }
+      if (contextId) await tx.update(schema.meetingContexts).set({ bookingId: rows[0]!.booking.id }).where(eq(schema.meetingContexts.id, contextId));
       return { rows };
     }));
   } catch (e) {
@@ -446,6 +464,7 @@ export async function rescheduleBooking(input: RescheduleInput, deps: Deps = {})
       answers: ans.map((a) => ({ questionId: a.questionId ?? "", question: a.question, answer: a.answer })).filter((a) => a.questionId),
       actor, previous: new Map(hostIds.map((h) => [h, previous.get(h) ?? old.id])),
       eventData: { rescheduledFromId: old.id }, seriesId: old.seriesId, // one occurrence moves; the series membership is kept
+      hostNotes: old.hostNotes, scheduledByUserId: old.scheduledByUserId, // the meeting context survives a reschedule
     });
     // answers whose question was deleted keep their text but have no questionId; re-attach them to the new invitee
     const orphan = ans.filter((a) => !a.questionId);

@@ -82,7 +82,10 @@ async function MembersTab({ orgId, userId, role, permissions, isAdmin }: { orgId
       {canInvite && <InvitePanel orgId={orgId} actorRole={role} invites={invites.map((i) => ({ id: i.id, email: i.email, role: i.role, expiresAt: i.expiresAt.toISOString(), expired: i.expired, invitedBy: i.invitedByName }))} canSeeInvites={isAdmin} />}
       <MembersPanel
         orgId={orgId} currentUserId={userId} actorRole={role}
-        members={members.map((m) => ({ userId: m.userId, name: m.name, email: m.email, image: m.image, role: m.role, permissions: m.permissions, joinedAt: m.joinedAt.toISOString() }))}
+        members={members.map((m) => ({
+          userId: m.userId, name: m.name, email: m.email, image: m.image, role: m.role, permissions: m.permissions, joinedAt: m.joinedAt.toISOString(),
+          status: m.status, lastActiveAt: m.lastActiveAt.toISOString(), managerUserId: m.managerUserId,
+        }))}
       />
     </div>
   );

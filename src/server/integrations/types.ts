@@ -1,7 +1,12 @@
-export type CalendarProviderName = "google" | "microsoft";
+export type CalendarProviderName = "google" | "microsoft" | "zoho";
 export type OAuthProviderName = CalendarProviderName | "zoom";
 
-export interface Interval { start: Date; end: Date }
+/**
+ * A busy window. `allDay` is set by providers for all-day / multi-day events: they are plain DATES, not instants, so providers
+ * cannot know which real hours they cover. start/end are then UTC-midnight placeholders and callers MUST run the list through
+ * `resolveAllDay(list, hostTimeZone)` (busy.ts), which turns the dates into that zone's local midnight-to-midnight.
+ */
+export interface Interval { start: Date; end: Date; allDay?: { startDate: string; endDate: string } }
 
 export interface RemoteCalendar { externalId: string; name: string; primary: boolean; writable: boolean }
 

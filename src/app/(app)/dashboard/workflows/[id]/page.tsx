@@ -26,7 +26,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
   const eventTypes = await listEventTypeOptions(user.id);
   const steps: StepState[] = wf.steps.map((s) => ({
     action: s.action as StepState["action"], offsetMinutes: s.offsetMinutes, to: (s.to as StepState["to"]) ?? "invitee",
-    subject: s.subject ?? "", body: s.body ?? "", url: s.url ?? "", secret: "", secretEnc: s.secretEnc, hasSecret: s.hasSecret,
+    subject: s.subject ?? "", body: s.body ?? "", attachIcs: !!s.attachIcs, url: s.url ?? "", secret: "", secretEnc: s.secretEnc, hasSecret: s.hasSecret,
   }));
   return <WorkflowForm initial={{ id: wf.id, name: wf.name, trigger: wf.trigger, eventTypeIds: wf.eventTypeIds, isActive: wf.isActive, steps }} eventTypes={eventTypes} />;
 }

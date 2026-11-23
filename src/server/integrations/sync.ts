@@ -10,6 +10,7 @@ import { getProvider } from "./provider";
 import { ProviderError } from "./http";
 import { withCalendarToken } from "./tokens";
 import { canReceiveWebhooks, webhookUrl } from "./config";
+import { resolveAllDay } from "./busy";
 
 const { calendars, connectedCalendars, calendarSyncStates, calendarBusy } = schema;
 
@@ -52,6 +53,9 @@ export async function syncCalendar(calendarId: string, opts: { full?: boolean } 
         throw e;
       }
     });
+    const [owner] = await db.select({ tz: schema.users.timeZone }).from(schema.users).where(eq(schema.users.id, conn.userId)).limit(1);
+    const hostTz = owner?.tz ?? "UTC";
+    for (const c of result.changes) if (c.busy?.allDay) c.busy = resolveAllDay([c.busy], hostTz)[0]!;
     await db.transaction(async (tx) => {
       if (result.reset) await tx.delete(calendarBusy).where(eq(calendarBusy.calendarId, calendarId));
       const upserts = result.changes.filter((c) => c.busy).map((c) => ({ calendarId, externalEventId: c.id, startsAt: c.busy!.start, endsAt: c.busy!.end }));
@@ -80,7 +84,7 @@ export async function syncCalendar(calendarId: string, opts: { full?: boolean } 
 export async function ensureSubscription(calendarId: string): Promise<"active" | "unsupported" | "error"> {
   const row = await loadCalendar(calendarId);
   if (!row || row.conn.status !== "active" || !row.cal.checkConflicts) return "unsupported";
-  if (!canReceiveWebhooks()) return "unsupported";
+  if (!canReceiveWebhooks() || row.conn.provider === "zoho") return "unsupported"; // Zoho cannot push to our webhook: it is polled
   const [state] = await db.select().from(calendarSyncStates).where(eq(calendarSyncStates.calendarId, calendarId)).limit(1);
   const provider = getProvider(row.conn.provider);
   try {

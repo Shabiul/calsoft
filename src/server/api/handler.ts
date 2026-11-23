@@ -3,6 +3,7 @@
  * Zod validation helpers, structured error envelope, request ids and audit logging of mutations.
  */
 import { randomUUID } from "node:crypto";
+import { isCompanyEmail } from "@/lib/company-email";
 import { eq } from "drizzle-orm";
 import { z, type ZodType } from "zod";
 import { db } from "@/server/db";
@@ -144,8 +145,10 @@ export function apiRoute<P = Record<string, string>>(opts: RouteOptions, handler
       if (!needed.some((s) => hasScope(k.scopes, s))) {
         return fail(403, "INSUFFICIENT_SCOPE", `This API key lacks the required scope: ${needed.join(" or ")}.`, { required: needed }, rate);
       }
-      const [owner] = await db.select({ status: users.status, deletedAt: users.deletedAt }).from(users).where(eq(users.id, k.userId)).limit(1);
-      if (!owner || owner.deletedAt || owner.status === "suspended") return fail(403, "ACCOUNT_SUSPENDED", "The account that owns this API key is not active.", undefined, rate);
+      const [owner] = await db.select({ status: users.status, deletedAt: users.deletedAt, email: users.email, role: users.platformRole }).from(users).where(eq(users.id, k.userId)).limit(1);
+      // Only active accounts: a suspended, deleted or BENCHED owner (inactive member who may have left) cannot use their keys.
+      // Same gate as sign-in: keys of an account outside the company domains stop working too.
+      if (!owner || owner.deletedAt || owner.status !== "active" || (owner.role !== "superadmin" && !isCompanyEmail(owner.email))) return fail(403, "ACCOUNT_SUSPENDED", "The account that owns this API key is not active.", undefined, rate);
 
       const url = new URL(req.url);
       const params = (await routeCtx?.params) ?? ({} as P);

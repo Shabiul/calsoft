@@ -15,6 +15,7 @@ export async function handleNotificationEvent(event: EventJobData): Promise<void
   const ctx = await loadBookingContext(bookingId);
   if (!ctx) return;
   const send = (kind: NotificationKind, recipient: string, role: string, extra?: RenderExtra, bId = bookingId) =>
+    recipient.toLowerCase().endsWith("@deleted.invalid") ? Promise.resolve({ id: "", deduped: true }) : // anonymised (deleted) account: nobody to email
     queueNotification({ kind, bookingId: bId, recipient, dedupeKey: dedupeKey(kind, bId, role), extra });
   /** Extra attendees (everyone after the primary invitee). They get the same emails, without the manage link. */
   const sendGuests = async (kind: NotificationKind, extra?: RenderExtra) => {

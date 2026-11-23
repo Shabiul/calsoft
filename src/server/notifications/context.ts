@@ -35,7 +35,7 @@ export async function loadBookingContext(bookingId: string): Promise<BookingCont
       id: row.b.id, status: row.b.status, startsAt: row.b.startsAt, endsAt: row.b.endsAt,
       inviteeTimeZone: row.b.inviteeTimeZone, hostTimeZone: row.b.hostTimeZone,
       meetingUrl: row.b.meetingUrl, joinUrl: maskedMeetingUrl(row.b), locationType: row.b.locationType,
-      cancelReason: row.b.cancelReason, cancelledBy: row.b.cancelledBy, seriesId: row.b.seriesId,
+      cancelReason: row.b.cancelReason, cancelledBy: row.b.cancelledBy, seriesId: row.b.seriesId, hostNotes: row.b.hostNotes,
     },
     eventType: {
       id: row.e.id, durationMinutes: row.e.durationMinutes, title: row.e.title, description: row.e.description, locationValue: row.e.locationValue,

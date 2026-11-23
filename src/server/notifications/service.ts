@@ -7,6 +7,7 @@ import { db } from "@/server/db";
 import { bookings, connectedCalendars, invitees, notificationLogs } from "@/server/db/schema";
 import { enqueue, MAX_ATTEMPTS, QUEUES } from "@/server/queue";
 import { loadBookingContext } from "./context";
+import { meetLinkExpected } from "@/server/integrations/meet-pending";
 import { getEmailProvider } from "./provider";
 import { renderNotification } from "./templates";
 import type { NotificationKind, RenderExtra, Role } from "./types";
@@ -67,13 +68,13 @@ export async function processNotification(data: NotificationJobData, opts: { att
         .where(and(eq(invitees.bookingId, log.bookingId), sql`lower(${invitees.email}) = ${rcpt}`)).limit(1);
       if (g) ctx.invitee = { name: g.name, email: g.email };
     }
-    // The Meet link is written by the calendar sync, which runs in parallel with this job. Retry (backoff) until it exists;
-    // the final attempt sends regardless so a missing link never blocks the email.
-    if (["confirmation", "approved", "reschedule", "host_notification"].includes(kind) && ctx.booking.locationType === "google_meet" && !ctx.booking.meetingUrl && !opts.isFinal && opts.attemptsMade < 3) {
-      const [conn] = await db.select({ id: connectedCalendars.id }).from(connectedCalendars)
-        .innerJoin(bookings, eq(bookings.hostUserId, connectedCalendars.userId))
-        .where(and(eq(bookings.id, log.bookingId), eq(connectedCalendars.provider, "google"), eq(connectedCalendars.status, "active"))).limit(1);
-      if (conn) throw new Error("waiting for Google Meet link");
+    // The meeting link (Google Meet / Zoho Meeting) is written by the calendar sync, which runs in parallel with this job. Retry
+    // (backoff) until it exists; the final attempt sends regardless so a missing link never blocks the email.
+    if (["confirmation", "approved", "reschedule", "host_notification"].includes(kind) && !ctx.booking.meetingUrl && !opts.isFinal && opts.attemptsMade < 3) {
+      const [bk] = await db.select({ hostUserId: bookings.hostUserId }).from(bookings).where(eq(bookings.id, log.bookingId)).limit(1);
+      if (bk && await meetLinkExpected({ hostUserId: bk.hostUserId, locationType: ctx.booking.locationType, meetingUrl: null, status: ctx.booking.status })) {
+        throw new Error("waiting for the meeting link");
+      }
     }
     const role: Role = kind === "host_notification" || log.recipient.toLowerCase() === ctx.host.email.toLowerCase() ? "host" : "invitee";
     const extra: RenderExtra = { ...(data.extra ?? {}) };

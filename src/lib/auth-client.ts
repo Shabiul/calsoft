@@ -1,12 +1,7 @@
 "use client";
 import { createAuthClient } from "better-auth/react";
-import { inferAdditionalFields, twoFactorClient } from "better-auth/client/plugins";
+import { inferAdditionalFields } from "better-auth/client/plugins";
 import type { Auth } from "./auth";
 
-export const authClient = createAuthClient({
-  plugins: [
-    inferAdditionalFields<Auth>(),
-    twoFactorClient({ onTwoFactorRedirect() { window.location.href = "/login/two-factor"; } }),
-  ],
-});
-export const { signIn, signUp, signOut, useSession } = authClient;
+export const authClient = createAuthClient({ plugins: [inferAdditionalFields<Auth>()] });
+export const { signIn, signOut, useSession } = authClient;

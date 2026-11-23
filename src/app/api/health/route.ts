@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { redisTls } from "@/server/queue/redis-tls";
+import { limitOr429 } from "@/server/ratelimit";
 
 /**
  * GET /api/health            -> liveness (process is up; no dependencies touched)
@@ -11,6 +12,10 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get("ready") !== "1") {
     return NextResponse.json({ status: "ok" }, { headers });
   }
+  // Readiness opens a DB query and a Redis connection per call: throttle it so it cannot be used to exhaust connections.
+  // 30/min per IP is far above any load balancer probe rate.
+  const limited = await limitOr429(req, "health-ready", 30, 60);
+  if (limited) return limited;
 
   const withTimeout = <T,>(p: Promise<T>, ms = 3000) =>
     Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);

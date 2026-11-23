@@ -19,7 +19,8 @@ npx playwright test
   notification rows after each spec. Uses `DATABASE_URL` (default dev DB) via `pg`.
 
 Specs (`tests/e2e`):
-- `booking-flow.spec.ts`: host signup, availability, event type, copy link, integrations page shows "Requires credentials",
+- Sign-in is Zoho only, so e2e hosts are signed in with a test session cookie (`tests/e2e/session-cookie.ts`): run the app server with the same `BETTER_AUTH_SECRET` as the test runner and with `e2e.meetflow.test` in `ALLOWED_EMAIL_DOMAINS`.
+- `booking-flow.spec.ts`: host sign-in, availability, event type, copy link, integrations page shows "Requires credentials",
   guest (IST, no login) books, confirmation + DB booking/invitee/notification_log + ICS + host dashboard, reschedule
   (old row `rescheduled`, history kept, slot freed), cancel with reason (row preserved).
 - `multi.spec.ts`: concurrency (exactly one winner), timezones (IST vs New York), mobile 390px, dark-mode smoke.

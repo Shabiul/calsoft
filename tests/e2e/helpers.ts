@@ -1,5 +1,7 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { Pool } from "pg";
+import { randomBytes, randomUUID } from "node:crypto";
+import { SESSION_COOKIE, signSessionToken } from "./session-cookie";
 
 export const DATABASE_URL = process.env.DATABASE_URL ?? "postgres://meetflow:meetflow@localhost:54329/meetflow";
 export const pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
@@ -10,26 +12,30 @@ export const uid = (p: string) => `${p}${RUN}${n++}`;
 export const E2E_EMAIL_DOMAIN = "e2e.meetflow.test";
 export const E2E_LIKE = `%@${E2E_EMAIL_DOMAIN}`;
 
-export type Host = { username: string; email: string; slug: string; title: string; eventTypeId: string; userId: string; password: string };
+export type Host = { username: string; email: string; slug: string; title: string; eventTypeId: string; userId: string };
 
 export async function q<T = Record<string, any>>(sql: string, params: unknown[] = []): Promise<T[]> {
   return (await pool.query(sql, params)).rows as T[];
 }
 
-/** Host registers through the UI. */
+/**
+ * Signs a new host in. Sign-in is Zoho only (no sign-up form), so the test creates the user and a session row and sets the
+ * signed session cookie (see session-cookie.ts). The app server must run with this BETTER_AUTH_SECRET and with
+ * E2E_EMAIL_DOMAIN in ALLOWED_EMAIL_DOMAINS.
+ */
 export async function signupHost(page: Page) {
   const username = uid("h");
   const email = `${username}@${E2E_EMAIL_DOMAIN}`;
-  const password = "E2e-Passw0rd!";
-  await page.goto("/signup");
-  await page.getByLabel("Full name").fill(`E2E Host ${username}`);
-  await page.getByLabel("Work email").fill(email);
-  await page.locator("#username").fill(username);
-  await expect(page.getByText("Available", { exact: true })).toBeVisible();
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
+  const secret = process.env.BETTER_AUTH_SECRET;
+  if (!secret) throw new Error("Set BETTER_AUTH_SECRET for e2e (same value as the app server)");
+  const id = `e2e_${username}`;
+  await q(`insert into "user" (id, name, email, email_verified, username, time_zone) values ($1, $2, $3, true, $4, 'UTC')`, [id, `E2E Host ${username}`, email, username]);
+  const token = randomBytes(24).toString("base64url");
+  await q(`insert into session (id, token, user_id, expires_at) values ($1, $2, $3, now() + interval '1 day')`, [randomUUID(), token, id]);
+  await page.context().addCookies([{ name: SESSION_COOKIE, value: signSessionToken(token, secret), url: process.env.E2E_BASE_URL ?? "http://localhost:3205" }]);
+  await page.goto("/dashboard");
   await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
-  return { username, email, password };
+  return { username, email };
 }
 
 const scheduleCount = async (email: string) =>
@@ -82,13 +88,13 @@ export async function createEventType(page: Page, email?: string) {
 export async function setupHost(browser: Browser): Promise<Host & { ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ timezoneId: "UTC", permissions: ["clipboard-read", "clipboard-write"] });
   const page = await ctx.newPage();
-  const { username, email, password } = await signupHost(page);
+  const { username, email } = await signupHost(page);
   await ensureAvailability(page, email);
   const et = await createEventType(page, email);
   const row = (await q<{ id: string; user_id: string }>(
     "select e.id, e.owner_user_id user_id from event_type e join \"user\" u on u.id=e.owner_user_id where u.username=$1 and e.slug=$2", [username, et.slug]))[0];
   expect(row, "event type row exists").toBeTruthy();
-  return { username, email, password, slug: et.slug, title: et.title, eventTypeId: row!.id, userId: row!.user_id, ctx, page };
+  return { username, email, slug: et.slug, title: et.title, eventTypeId: row!.id, userId: row!.user_id, ctx, page };
 }
 
 /** Guest walks the public page to the details form. Returns the chosen slot label. */

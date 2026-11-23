@@ -5,13 +5,21 @@ import { AlertTriangle, CalendarDays, Link2, RefreshCw, Video } from "lucide-rea
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Switch, toast } from "@/components/ui";
 
 export interface ProviderInfo {
-  id: "google" | "microsoft" | "zoom"; configured: boolean; missing: string[]; redirectUri: string; webhookUrl: string | null;
+  id: "google" | "microsoft" | "zoho" | "zoom"; configured: boolean; missing: string[]; redirectUri: string; webhookUrl: string | null;
 }
 interface Cal { id: string; name: string; checkConflicts: boolean; isDestination: boolean; lastSyncedAt: string | null; syncError: string | null; pushActive: boolean }
-interface Conn { id: string; provider: "google" | "microsoft"; email: string | null; status: string; lastError: string | null; createdAt: string; calendars: Cal[] }
+interface Conn { id: string; provider: "google" | "microsoft" | "zoho"; email: string | null; status: string; lastError: string | null; createdAt: string; calendars: Cal[] }
 interface Video { id: string; provider: string; email: string | null; status: string; lastError: string | null }
 
-const LABEL = { google: "Google Calendar", microsoft: "Microsoft Outlook", zoom: "Zoom" } as const;
+export interface MailHint { email: string; label: string; kind: "personal" | "business" | "unknown"; recommended: string[]; reason: string }
+const LABEL = { google: "Google Calendar", microsoft: "Microsoft Outlook", zoho: "Zoho Calendar", zoom: "Zoom" } as const;
+const BLURB = {
+  google: "Check Google calendars for conflicts, add events and Google Meet links.",
+  microsoft: "Check Outlook calendars for conflicts, add events and Microsoft Teams links.",
+  zoho: "Check Zoho calendars for conflicts, add events and Zoho Meeting links.",
+} as const;
+type CalId = keyof typeof BLURB;
+const CAL_IDS: CalId[] = ["google", "microsoft", "zoho"];
 const DOC_HINT = "See docs/INTEGRATIONS.md for the exact console setup.";
 
 async function call(url: string, method: string, body?: unknown): Promise<{ ok: boolean; message?: string }> {
@@ -42,8 +50,8 @@ function ConnectButton({ p, label }: { p: ProviderInfo; label: string }) {
   return <Button asChild><a href={`/api/integrations/${p.id}/start`}><Link2 />{label}</a></Button>;
 }
 
-export function IntegrationsPanel({ providers, connections, video, flash, webhooksAvailable }: {
-  providers: ProviderInfo[]; connections: Conn[]; video: Video[]; flash: { type: "error" | "success"; text: string } | null; webhooksAvailable: boolean;
+export function IntegrationsPanel({ providers, connections, video, flash, webhooksAvailable, mail }: {
+  providers: ProviderInfo[]; connections: Conn[]; video: Video[]; flash: { type: "error" | "success"; text: string } | null; webhooksAvailable: boolean; mail?: MailHint;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -62,8 +70,21 @@ export function IntegrationsPanel({ providers, connections, video, flash, webhoo
   const info = (id: ProviderInfo["id"]) => providers.find((p) => p.id === id)!;
   const googleConnected = connections.some((c) => c.provider === "google" && c.status === "active");
   const msConnected = connections.some((c) => c.provider === "microsoft" && c.status === "active");
+  const zohoConnected = connections.some((c) => c.provider === "zoho" && c.status === "active");
+  const recommended = CAL_IDS.filter((id) => mail?.recommended.includes(id));
+  const others = CAL_IDS.filter((id) => !recommended.includes(id));
   const zoom = video.find((v) => v.provider === "zoom");
   const hasDestination = connections.some((c) => c.calendars.some((k) => k.isDestination));
+
+  const providerCard = (id: CalId, highlight?: boolean) => (
+    <Card key={id} className={highlight ? "border-primary/50 ring-1 ring-primary/20" : undefined}>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">{LABEL[id]}{highlight && <Badge variant="success">Recommended</Badge>}</CardTitle>
+        <CardDescription>{BLURB[id]}</CardDescription>
+      </CardHeader>
+      <CardContent><ConnectButton p={info(id)} label={connections.some((c) => c.provider === id) ? "Connect another account" : "Connect"} /></CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-6">
@@ -131,24 +152,36 @@ export function IntegrationsPanel({ providers, connections, video, flash, webhoo
           </Card>
         ))}
         {connections.length > 0 && !hasDestination && (
-          <p className="text-sm text-muted-foreground">Choose a destination calendar to have new bookings (and Google Meet / Teams links) added automatically.</p>
+          <p className="text-sm text-muted-foreground">Choose a destination calendar to have new bookings (and Google Meet / Teams / Zoho Meeting links) added automatically.</p>
         )}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(["google", "microsoft"] as const).map((id) => (
-            <Card key={id}><CardHeader><CardTitle>{LABEL[id]}</CardTitle>
-              <CardDescription>{id === "google" ? "Check Google calendars for conflicts, add events and Google Meet links." : "Check Outlook calendars for conflicts, add events and Microsoft Teams links."}</CardDescription></CardHeader>
-              <CardContent><ConnectButton p={info(id)} label={connections.some((c) => c.provider === id) ? "Connect another account" : "Connect"} /></CardContent></Card>
-          ))}
+        {recommended.length > 0 && mail && (
+          <div className="space-y-2">
+            <div>
+              <h3 className="text-sm font-semibold">Recommended for {mail.email}</h3>
+              {mail.reason && <p className="text-sm text-muted-foreground">{mail.reason}</p>}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {recommended.map((id) => providerCard(id, true))}
+            </div>
+          </div>
+        )}
+        <div className="space-y-2">
+          {recommended.length > 0 && <h3 className="text-sm font-semibold text-muted-foreground">Other options</h3>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {others.map((id) => providerCard(id))}
+          </div>
         </div>
       </section>
 
       <section className="space-y-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold"><Video className="size-5" /> Video conferencing</h2>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Card><CardHeader><CardTitle>Google Meet</CardTitle><CardDescription>Created with the booking event on your Google destination calendar.</CardDescription></CardHeader>
             <CardContent>{googleConnected ? <Badge variant="success">Available</Badge> : <Badge variant="secondary">Connect Google Calendar first</Badge>}</CardContent></Card>
           <Card><CardHeader><CardTitle>Microsoft Teams</CardTitle><CardDescription>Created with the booking event on your Microsoft destination calendar.</CardDescription></CardHeader>
             <CardContent>{msConnected ? <Badge variant="success">Available</Badge> : <Badge variant="secondary">Connect Outlook first</Badge>}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Zoho Meeting</CardTitle><CardDescription>Created with the booking event on your Zoho destination calendar.</CardDescription></CardHeader>
+            <CardContent>{zohoConnected ? <Badge variant="success">Available</Badge> : <Badge variant="secondary">Connect Zoho Calendar first</Badge>}</CardContent></Card>
           <Card><CardHeader><CardTitle>Zoom</CardTitle><CardDescription>{zoom ? zoom.email ?? "Connected account" : "A unique Zoom meeting is created for each booking."}</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {zoom ? (

@@ -281,8 +281,11 @@ describe("reschedule & cancel", () => {
 describe("buffers", () => {
   it("adjacent slots inside the buffer are no longer offered; block window stored", async () => {
     const s = await slots(ev.buffered);
-    const t0 = new Date(s[2].startsAt).getTime();
-    const r = await createBooking({ eventTypeId: ev.buffered, startsAt: s[2].startsAt, invitee: invitee("b1") });
+    // A mid-day slot (host works 08:00-20:00 UTC): the checks below look an hour either side of it, which must stay inside working hours
+    // whatever time of day the test runs. (s[2] was "the third slot from now": at 17:30 UTC that is ~19:00 and t0 + 60 min is 20:00.)
+    const pick = s.find((x) => { const h = new Date(x.startsAt).getUTCHours(); return h >= 10 && h <= 15; })!;
+    const t0 = new Date(pick.startsAt).getTime();
+    const r = await createBooking({ eventTypeId: ev.buffered, startsAt: pick.startsAt, invitee: invitee("b1") });
     expect(r.booking.blockStart.getTime()).toBe(t0 - 15 * 60_000);
     expect(r.booking.blockEnd.getTime()).toBe(t0 + 45 * 60_000);
     const after = await slots(ev.buffered);

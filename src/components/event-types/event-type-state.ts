@@ -20,7 +20,7 @@ export const defaultFormState = (organizationId: string | null = null, hostUserI
   organizationId, title: "", slug: "", description: "", kind: "one_on_one", durationMinutes: 30, locationType: "google_meet", locationValue: "",
   bufferBeforeMinutes: 0, bufferAfterMinutes: 0, minNoticeMinutes: 240, maxHorizonDays: 60, slotIntervalMinutes: null, dailyLimit: null, weeklyLimit: null,
   capacity: 1, scheduleId: null, requiresConfirmation: false, notetakerEnabled: false, cancellationPolicy: "", allowReschedule: true, minCancelNoticeMinutes: 0,
-  color: "#6366f1", redirectUrl: "", priceMajor: "", priceCurrency: "USD", paymentProvider: null, reminders: [1440, 60],
+  color: "#6366f1", redirectUrl: "", priceMajor: "", priceCurrency: "USD", paymentProvider: null, reminders: [0, 10],
   recurrenceOn: false, recurrenceCount: 4, recurrenceInterval: "week", isActive: true, isOneOff: false,
   hosts: organizationId && hostUserId ? [{ userId: hostUserId, priority: 0, weight: 1, isRequired: true }] : [], questions: [],
   pageBrandColor: "", pageLogoUrl: "", pageHeadline: "", pageSuccess: "",

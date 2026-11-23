@@ -94,6 +94,13 @@ describe("planReminders", () => {
     expect(p.map((r) => r.minutesBefore)).toEqual([60, 10]);
     expect(p[0].sendAt.toISOString()).toBe("2030-01-01T01:00:00.000Z");
   });
+  it("adds a 9:00 AM-on-the-day reminder in the given zone, skipped when the meeting is within an hour of 9:00", () => {
+    const early = new Date("2029-12-31T00:00:00Z");
+    const p = planReminders(new Date("2030-01-01T18:00:00Z"), [0, 10], early, "America/New_York"); // 13:00 NY
+    expect(p.map((r) => r.minutesBefore)).toEqual([0, 10]);
+    expect(p[0].sendAt.toISOString()).toBe("2030-01-01T14:00:00.000Z"); // 09:00 NY
+    expect(planReminders(new Date("2030-01-01T14:30:00Z"), [0, 10], early, "America/New_York").map((r) => r.minutesBefore)).toEqual([10]);
+  });
   it("returns nothing for a booking starting immediately", () => expect(planReminders(now, [60], now)).toEqual([]));
 });
 
@@ -182,5 +189,28 @@ describe("email format", () => {
     expect(m.html).not.toContain("pinterest");
     expect(m.html).toContain("/email-logo.png");
     expect(m.html).toContain("MeetFlow");
+  });
+});
+
+describe("meeting link label", () => {
+  it.each([["google_meet", "Google Meet"], ["zoom", "Zoom"], ["teams", "Microsoft Teams"], ["zoho_meeting", "Zoho Meeting"], ["custom_url", "Online meeting"]])(
+    "labels a %s link as %s", (locationType, label) => {
+      const c: BookingContext = { ...ctx, booking: { ...ctx.booking, locationType, meetingUrl: "https://meet.example.com/abc" } };
+      const m = renderNotification("confirmation", c, "invitee");
+      expect(m.text).toContain(`Where: ${label} (https://meet.example.com/abc)`);
+    });
+});
+
+describe("internal meeting context", () => {
+  const secret = "Budget 40k, decision in Q3, competitor is Acme";
+  const withContext: BookingContext = { ...ctx, booking: { ...ctx.booking, hostNotes: secret } };
+  it("is shown to the host only, never in any invitee email or invite", () => {
+    const host = renderNotification("host_notification", withContext, "host");
+    expect(host.html + host.text).toContain(secret);
+    for (const kind of ["confirmation", "reminder", "reschedule", "cancellation", "host_changed"] as const) {
+      const inv = renderNotification(kind, withContext, "invitee");
+      const ics = (inv.attachments ?? []).map((a) => String(a.content)).join("");
+      expect(inv.html + inv.text + ics).not.toContain("Budget 40k");
+    }
   });
 });

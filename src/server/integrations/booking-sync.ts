@@ -4,7 +4,7 @@
  * afterBookingCreated / afterBookingUpdated / afterBookingCancelled all converge the external world to the booking's
  * current state (reconcileBooking), so they are idempotent and safe to retry/duplicate:
  *  - ids of created resources are persisted on booking.external_event_ids IMMEDIATELY after each step
- *    ("cal:<calendar row id>" -> event id, "zoom" -> meeting id, "sig" -> hash of the last synced state);
+ *    ("cal:<calendar row id>" -> event id, "zoom" / "zoho_meeting" -> meeting id, "sig" -> hash of the last synced state);
  *  - Google uses deterministic event ids and Graph uses transactionId, so a crash between create and persist is converged;
  *  - a per-booking Postgres advisory lock prevents concurrent reconciles;
  *  - a failed step never aborts the booking: failures are written to booking_event ("integration_sync_failed") and
@@ -18,10 +18,11 @@ import { sha256 } from "@/lib/crypto";
 import { getProvider } from "./provider";
 import { ProviderError } from "./http";
 import { withCalendarToken } from "./tokens";
+import { createZohoMeeting, deleteZohoMeeting, updateZohoMeeting } from "./zoho-meeting";
 import { createZoomMeeting, deleteZoomMeeting, getZoomConnection, passthroughLocation, updateZoomMeeting } from "./video";
 import type { EventInput } from "./types";
 import { joinLink } from "@/server/public/join";
-import { markBotScheduled, createBot, deleteBot, notesUrl, notetakerConfigured, scheduleCollect } from "@/server/notetaker";
+import { markBotScheduled, createBot, deleteBot, notetakerConfigured, scheduleCollect } from "@/server/notetaker";
 
 const { bookings, bookingEvents, calendars, connectedCalendars, eventTypes, invitees, users } = schema;
 
@@ -47,12 +48,18 @@ async function patchIds(bookingId: string, set: Ids, remove: string[] = []) {
 }
 
 async function withLock<T>(bookingId: string, fn: () => Promise<T>): Promise<{ locked: false } | { locked: true; value: T }> {
+  // Transaction-scoped lock (released by COMMIT/ROLLBACK, even if this process dies): unlike a session lock plus a separate unlock
+  // call it is correct behind a transaction pooler (Supabase/PgBouncer), where two statements may land on different backends.
   const client = await pool.connect();
   try {
-    const r = await client.query("select pg_try_advisory_lock(hashtext($1)) as ok", [`integrations:${bookingId}`]);
-    if (!r.rows[0]?.ok) return { locked: false };
+    await client.query("BEGIN");
+    const r = await client.query("select pg_try_advisory_xact_lock(hashtext($1)) as ok", [`integrations:${bookingId}`]);
+    if (!r.rows[0]?.ok) { await client.query("ROLLBACK").catch(() => undefined); return { locked: false }; }
     try { return { locked: true, value: await fn() }; }
-    finally { await client.query("select pg_advisory_unlock(hashtext($1))", [`integrations:${bookingId}`]).catch(() => undefined); }
+    finally { await client.query("COMMIT").catch(() => undefined); }
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw e;
   } finally { client.release(); }
 }
 
@@ -65,6 +72,13 @@ async function destinationCalendars(hostUserId: string) {
   return db.select({ cal: calendars, conn: connectedCalendars }).from(calendars)
     .innerJoin(connectedCalendars, eq(calendars.connectedCalendarId, connectedCalendars.id))
     .where(and(eq(connectedCalendars.userId, hostUserId), eq(calendars.isDestination, true)));
+}
+
+/** The host's Zoho account (Zoho Meeting links are created through the same OAuth grant as the Zoho calendar). */
+async function zohoConnection(hostUserId: string) {
+  const [zc] = await db.select().from(connectedCalendars)
+    .where(and(eq(connectedCalendars.userId, hostUserId), eq(connectedCalendars.provider, "zoho"))).orderBy(asc(connectedCalendars.createdAt)).limit(1);
+  return zc;
 }
 
 // ───────────────────────── teardown (cancel / reschedule-away / expire)
@@ -83,6 +97,9 @@ async function teardown(bookingId: string, hostUserId: string, ids: Ids, failure
       } else if (key === "zoom") {
         const zc = await getZoomConnection(hostUserId);
         if (zc) await deleteZoomMeeting(zc.id, ids[key]);
+      } else if (key === "zoho_meeting") {
+        const zc = await zohoConnection(hostUserId);
+        if (zc) await withCalendarToken(zc.id, "zoho", (t) => deleteZohoMeeting(t, ids[key]));
       } else if (key === "recall") {
         await deleteBot(ids[key]);
       }
@@ -106,15 +123,13 @@ async function upsert(bookingId: string, ids: Ids, failures: SyncFailure[], chan
   const first = invs[0];
   const locType = b.locationType ?? et?.locationType ?? null;
   const title = `${et?.title ?? "Meeting"}${first ? ` with ${first.name}` : ""}`;
-  const notes = notesUrl(bookingId);
   const description = [
     `Agenda: ${et?.title ?? "Meeting"}`,
     et?.description?.trim() || null,
     host ? `Host: ${host.name} (${host.email})` : null,
     invs.length ? `Attendees:\n${invs.map((i) => `- ${i.name} (${i.email})`).join("\n")}` : null,
-    ["google_meet", "zoom", "teams", "custom_url"].includes(locType ?? "") ? `Join the meeting: ${joinLink(b.joinCode)}` : null,
-    notes ? `Meeting notes: ${notes}` : null,
-    et?.notetakerEnabled ? "A notetaker will join to record and transcribe this meeting." : null,
+    ["google_meet", "zoom", "teams", "zoho_meeting", "custom_url"].includes(locType ?? "") ? `Join the meeting: ${joinLink(b.joinCode)}` : null,
+    et?.notetakerEnabled && notetakerConfigured() ? "A notetaker will join to record and transcribe this meeting." : null,
     `Booked via ${process.env.APP_NAME ?? "MeetFlow"}`,
   ].filter(Boolean).join("\n\n");
   const pass = passthroughLocation(locType, et?.locationValue, first?.phone);
@@ -144,6 +159,29 @@ async function upsert(bookingId: string, ids: Ids, failures: SyncFailure[], chan
         changed.push("created:zoom");
       }
     } catch (e) { failures.push(toFailure("zoom", e)); }
+  }
+  // 1b) Zoho Meeting (created through the host's Zoho account; the link is also put into every calendar event below)
+  if (locType === "zoho_meeting") {
+    try {
+      const zc = await zohoConnection(b.hostUserId);
+      if (!zc) throw new ProviderError("Zoho is not connected for the host; no meeting link was created", "other");
+      if (zc.status !== "active") throw new ProviderError("Zoho connection needs re-authorization", "auth", 401);
+      const input = { bookingId, topic: title, startsAt: b.startsAt, endsAt: b.endsAt, agenda: description, attendeeEmails: invs.map((i) => i.email) };
+      let created = false;
+      if (ids.zoho_meeting) {
+        meetingUrl = b.meetingUrl ?? undefined;
+        if (sigChanged) {
+          try { await withCalendarToken(zc.id, "zoho", (t) => updateZohoMeeting(t, ids.zoho_meeting, input)); changed.push("updated:zoho_meeting"); }
+          catch (e) { if (e instanceof ProviderError && e.kind === "not_found") { delete ids.zoho_meeting; created = true; } else throw e; }
+        }
+      } else created = true;
+      if (created) {
+        const m = await withCalendarToken(zc.id, "zoho", (t) => createZohoMeeting(t, input));
+        ids.zoho_meeting = m.id; meetingUrl = m.joinUrl;
+        await patchIds(bookingId, { zoho_meeting: m.id });
+        changed.push("created:zoho_meeting");
+      }
+    } catch (e) { failures.push(toFailure("zoho_meeting", e)); }
   }
   if (meetingUrl && meetingUrl !== b.meetingUrl) {
     await db.update(bookings).set({ meetingUrl, updatedAt: new Date() }).where(eq(bookings.id, bookingId));
@@ -245,6 +283,34 @@ export async function reconcileBooking(bookingId: string, opts: { attempt?: numb
   await record(bookingId, attempt, failures, changed);
   if (failures.some((f) => f.retryable)) await scheduleRetry(bookingId, attempt);
   return { ok: failures.length === 0, changed, failures };
+}
+
+/**
+ * Moves a booking to another host (a benched member's meetings go to their manager). Under the booking lock:
+ *  1. switch the host first, so if the new host already has a meeting then (booking_no_overlap, Postgres 23P01) this throws and
+ *     NOTHING has changed;
+ *  2. remove the old host's calendar events, meeting link and notetaker bot (best effort: a departed host's revoked calendar cannot
+ *     be cleaned, those ids are dropped);
+ *  3. a fresh upsert creates the events / meeting link for the new host. The masked join link (/j/<code>) invitees have keeps working.
+ */
+export async function transferBookingHost(bookingId: string, toUserId: string): Promise<SyncResult> {
+  const failures: SyncFailure[] = [], changed: string[] = [];
+  const run = await withLock(bookingId, async () => {
+    const b = await loadBooking(bookingId);
+    if (!b) throw new Error("booking not found");
+    if (b.hostUserId === toUserId) return;
+    // meetingUrl belonged to the old host's Zoom/Meet/Teams/Zoho account; upsert sets the new one (or the custom url again).
+    await db.update(bookings).set({ hostUserId: toUserId, meetingUrl: null, updatedAt: new Date() }).where(eq(bookings.id, bookingId));
+    const ids: Ids = { ...(b.externalEventIds ?? {}) };
+    await teardown(bookingId, b.hostUserId, ids, failures, changed);
+    if (Object.keys(ids).length) await patchIds(bookingId, {}, Object.keys(ids));
+    if (b.status === "confirmed") await upsert(bookingId, {}, failures, changed);
+    changed.push(`host:${b.hostUserId}->${toUserId}`);
+  });
+  if (!run.locked) throw new Error("The booking is being synced right now; try again shortly");
+  await record(bookingId, 0, failures, changed);
+  if (failures.some((f) => f.retryable)) await scheduleRetry(bookingId, 0);
+  return { ok: !failures.length, changed, failures };
 }
 
 async function record(bookingId: string, attempt: number, failures: SyncFailure[], changed: string[]) {

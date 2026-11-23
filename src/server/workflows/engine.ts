@@ -91,7 +91,7 @@ export async function processExecution(executionId: string, opts: { attemptsMade
       for (const r of recipients) {
         await queueNotification({
           kind: "workflow", bookingId: ctx.booking.id, recipient: r, dedupeKey: `wf:${executionId}:${r.toLowerCase()}`,
-          extra: { subject: String(cfg.subject ?? ""), body: String(cfg.body ?? "") },
+          extra: { subject: String(cfg.subject ?? ""), body: String(cfg.body ?? ""), attachIcs: cfg.attachIcs === true },
         });
       }
     } else if (row.s.action === "send_webhook") {

@@ -11,7 +11,8 @@ export const googleEventId = (bookingId: string, calendarId: string) =>
   createHash("sha256").update(`${bookingId}:${calendarId}`).digest("hex").slice(0, 40);
 
 interface GEvent {
-  id: string; status?: string; transparency?: string; hangoutLink?: string;
+  id: string; status?: string; transparency?: string; hangoutLink?: string; eventType?: string;
+  attendees?: { self?: boolean; responseStatus?: string }[];
   start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string };
   extendedProperties?: { private?: Record<string, string> };
   conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
@@ -40,7 +41,14 @@ const parseDate = (p?: { dateTime?: string; date?: string }) => p?.dateTime ? ne
 
 function toBusy(e: GEvent): Interval | null {
   if (e.status === "cancelled" || e.transparency === "transparent") return null;
+  if (e.eventType === "workingLocation") return null; // "Working from home" markers are not meetings
+  if (e.attendees?.some((a) => a.self && a.responseStatus === "declined")) return null; // an invite the host declined does not block time
   if (e.extendedProperties?.private?.meetflowBookingId) return null; // our own bookings are blocked via the booking table
+  // All-day / multi-day events carry plain dates: the caller resolves them to the host's local days (resolveAllDay).
+  if (e.start?.date && !e.start.dateTime) {
+    const start = parseDate(e.start), end = parseDate(e.end) ?? new Date(start!.getTime() + 86_400_000);
+    return start ? { start, end: end > start ? end : new Date(start.getTime() + 86_400_000), allDay: { startDate: e.start.date, endDate: e.end?.date ?? e.start.date } } : null;
+  }
   const start = parseDate(e.start), end = parseDate(e.end);
   return start && end && end > start ? { start, end } : null;
 }

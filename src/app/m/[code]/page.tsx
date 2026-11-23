@@ -5,6 +5,7 @@ import { loadEventByShortCode, trackPageView } from "@/server/public/data";
 import { PublicShell } from "@/components/booking/PublicShell";
 import { PageFrame, FlowSkeleton } from "@/components/booking/PublicChrome";
 import { BookingFlow } from "@/components/booking/BookingFlow";
+import { contextToken } from "@/server/public/schemas";
 import { formatDuration } from "@/components/booking/format";
 import { APP_NAME } from "@/lib/brand";
 
@@ -46,7 +47,7 @@ async function Event({ params, searchParams }: P) {
   return (
     <PublicShell brandColor={event.brandColor}>
       <PageFrame wide>
-        <BookingFlow event={event} prefill={prefill} />
+        <BookingFlow event={event} prefill={prefill} contextToken={contextToken(sp.ctx)} />
       </PageFrame>
     </PublicShell>
   );

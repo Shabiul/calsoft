@@ -7,13 +7,13 @@ import {
   Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea,
 } from "@/components/ui";
 import { Field, NumberInput, Section } from "./field";
-import { HostPicker, type HostState, type OrgMember } from "./host-picker";
-import { QuestionBuilder, newKey, type QuestionState } from "./question-builder";
+import { HostPicker, type OrgMember } from "./host-picker";
+import { QuestionBuilder } from "./question-builder";
 import { unwrap } from "./action-toast";
 import { createEventTypeAction, updateEventTypeAction } from "@/app/(app)/dashboard/event-types/actions";
 import {
   EVENT_KINDS, KIND_HELP, KIND_LABELS, LOCATION_LABELS, LOCATION_TYPES, LOCATIONS_NEEDING_VALUE, eventTypeInputSchema, isTeamKind, slugify,
-  type EventKind, type LocationType,
+  type LocationType,
 } from "@/lib/validation/event-types";
 
 import type { FormState } from "./event-type-state";
@@ -26,7 +26,7 @@ const FIELD_TAB: Record<string, string> = {
   requiresConfirmation: "advanced", notetakerEnabled: "advanced", cancellationPolicy: "advanced", minCancelNoticeMinutes: "advanced", redirectUrl: "advanced", priceAmount: "advanced",
   priceCurrency: "advanced", paymentProvider: "advanced", reminders: "advanced", recurrence: "advanced",
 };
-const REMINDER_PRESETS = [{ m: 10, l: "10 minutes" }, { m: 30, l: "30 minutes" }, { m: 60, l: "1 hour" }, { m: 180, l: "3 hours" }, { m: 1440, l: "1 day" }, { m: 2880, l: "2 days" }, { m: 10080, l: "1 week" }];
+const REMINDER_PRESETS = [{ m: 0, l: "9:00 AM on the day" }, { m: 10, l: "10 minutes" }, { m: 30, l: "30 minutes" }, { m: 60, l: "1 hour" }, { m: 180, l: "3 hours" }, { m: 1440, l: "1 day" }, { m: 2880, l: "2 days" }, { m: 10080, l: "1 week" }];
 const CURRENCIES = ["USD", "EUR", "GBP", "INR", "AUD", "CAD", "SGD", "AED", "JPY"];
 
 type Props = {
@@ -263,7 +263,7 @@ export function EventTypeForm({ mode, eventTypeId, initial, currentUserId, organ
         <TabsContent value="advanced" className="space-y-4 pt-4">
           <Section title="Confirmation and policies">
             <ToggleRow id="confirm" label="Require host confirmation" hint="Bookings stay pending until you approve them." checked={v.requiresConfirmation} onChange={(c) => set("requiresConfirmation", c)} />
-            <ToggleRow id="notetaker" label="Notetaker" hint="A notetaker bot joins the video call and records audio, video, attendance and chat. Afterwards everyone gets the transcript, an AI summary and their own action items. Invitees are told on the booking page and in the meeting chat." checked={v.notetakerEnabled} onChange={(c) => set("notetakerEnabled", c)} />
+            <ToggleRow id="notetaker" label="Notetaker" hint="Optional bot: joins the video call and records audio, video, attendance and chat (needs a Recall.ai API key on the server; without one this switch does nothing). Free alternative: on the meeting's notes page, use Record this meeting or upload a recording and Gemini writes the transcript, summary and action items." checked={v.notetakerEnabled} onChange={(c) => set("notetakerEnabled", c)} />
             <ToggleRow id="resched" label="Allow invitees to reschedule" checked={v.allowReschedule} onChange={(c) => set("allowReschedule", c)} />
             <Field label="Minimum notice to cancel/reschedule (minutes)" htmlFor="cnotice" error={err("minCancelNoticeMinutes")}>
               <NumberInput id="cnotice" min={0} value={v.minCancelNoticeMinutes} onChange={(n) => set("minCancelNoticeMinutes", n)} />
@@ -279,7 +279,7 @@ export function EventTypeForm({ mode, eventTypeId, initial, currentUserId, organ
                 const on = v.reminders.includes(p.m);
                 return (
                   <button key={p.m} type="button" aria-pressed={on} onClick={() => set("reminders", on ? v.reminders.filter((x) => x !== p.m) : [...v.reminders, p.m].sort((a, b) => b - a))}
-                    className={`cursor-pointer rounded-full border px-3 py-1 text-sm ${on ? "border-brand bg-brand/10 text-brand" : "hover:bg-accent"}`}>{p.l} before</button>
+                    className={`cursor-pointer rounded-full border px-3 py-1 text-sm ${on ? "border-brand bg-brand/10 text-brand" : "hover:bg-accent"}`}>{p.l}{p.m ? " before" : ""}</button>
                 );
               })}
             </div>

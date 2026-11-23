@@ -71,6 +71,27 @@
       "when": 1795263911325,
       "tag": "0009_notetaker_media",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795432049499,
+      "tag": "0010_zoho",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795440023278,
+      "tag": "0011_bench",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795441090191,
+      "tag": "0012_meeting_context",
+      "breakpoints": true
     }
   ]
 }

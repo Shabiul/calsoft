@@ -7,7 +7,7 @@ import { syncConnection } from "@/server/integrations/sync";
 import { ProviderError } from "@/server/integrations/http";
 import type { OAuthProviderName } from "@/server/integrations/types";
 
-const PROVIDERS = ["google", "microsoft", "zoom"];
+const PROVIDERS = ["google", "microsoft", "zoho", "zoom"];
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { provider } = await ctx.params;

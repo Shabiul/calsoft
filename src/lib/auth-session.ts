@@ -26,6 +26,9 @@ export const getSession = cache(async (): Promise<AppSession | null> => {
   if (!s) return null;
   const u = s.user as Record<string, unknown>;
   if (u.deletedAt || u.status === "suspended") return null;
+  // Inactivity tracking (bench): any app use counts; a benched member who comes back is restored. Never breaks auth.
+  try { await (await import("@/server/services/bench")).touchActivity(s.user.id, String(u.status ?? "active")); }
+  catch (e) { console.warn("[auth] activity tracking failed:", (e as Error).message); }
   return {
     sessionId: s.session.id,
     user: {

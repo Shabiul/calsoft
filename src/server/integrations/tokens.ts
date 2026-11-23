@@ -3,7 +3,7 @@ import { db, schema } from "@/server/db";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { ProviderError } from "./http";
 import { refreshTokens } from "./oauth";
-import type { OAuthProviderName, TokenSet } from "./types";
+import type { CalendarProviderName, OAuthProviderName, TokenSet } from "./types";
 
 const { connectedCalendars, videoConnections } = schema;
 
@@ -66,7 +66,7 @@ async function withToken<T>(key: string, store: Store, fn: (accessToken: string)
   }
 }
 
-export function withCalendarToken<T>(connectedCalendarId: string, provider: "google" | "microsoft", fn: (accessToken: string) => Promise<T>): Promise<T> {
+export function withCalendarToken<T>(connectedCalendarId: string, provider: CalendarProviderName, fn: (accessToken: string) => Promise<T>): Promise<T> {
   const where = eq(connectedCalendars.id, connectedCalendarId);
   return withToken(`cal:${connectedCalendarId}`, {
     provider,

@@ -1,7 +1,7 @@
 export const NOTIFICATION_KINDS = [
   "confirmation", "host_notification", "cancellation", "reschedule", "reminder", "follow_up",
   "payment_confirmation", "payment_failed", "workflow",
-  "request_received", "approval_request", "approved", "declined", "notes_ready", "action_items",
+  "request_received", "approval_request", "approved", "declined", "notes_ready", "action_items", "host_changed",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -13,6 +13,8 @@ export interface BookingContext {
     joinUrl?: string | null; cancelReason: string | null; cancelledBy: string | null;
     /** Recurring series membership (null for single bookings). */
     seriesId?: string | null;
+    /** Internal meeting context: rendered ONLY in emails to the host, never to invitees. */
+    hostNotes?: string | null;
   };
   eventType: { id: string; durationMinutes?: number; title: string; description: string | null; locationValue: string | null; cancellationPolicy: string | null; priceAmount: number | null; priceCurrency: string | null };
   host: { id: string; name: string; email: string };
@@ -41,6 +43,8 @@ export interface RenderExtra {
   reason?: string;
   /** workflow-provided content (untrusted; escaped) */
   subject?: string; body?: string;
+  /** workflow: attach the calendar invite (.ics) for the invitee. */
+  attachIcs?: boolean;
 }
 export type Role = "invitee" | "host";
 export interface RenderedEmail {

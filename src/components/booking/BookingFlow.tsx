@@ -25,6 +25,8 @@ export type BookingFlowProps = {
   /** Reschedule mode: the manage token of the booking being moved. */
   rescheduleToken?: string;
   prefill?: { name?: string; email?: string };
+  /** Personal context link token (?ctx=). Only the token travels; the context itself stays on the server. */
+  contextToken?: string;
   /** Reschedule mode: current start (shown as "currently ..."). */
   currentStartsAt?: string;
   onRescheduled?: (newToken: string | null) => void;
@@ -40,7 +42,7 @@ function LocationIcon({ type }: { type: string }) {
   return <Video size={16} aria-hidden />;
 }
 
-export function BookingFlow({ event, embed, rescheduleToken, prefill, currentStartsAt, onRescheduled }: BookingFlowProps) {
+export function BookingFlow({ event, embed, rescheduleToken, prefill, contextToken, currentStartsAt, onRescheduled }: BookingFlowProps) {
   const reschedule = !!rescheduleToken;
   const env = useBrowserEnv();
   const ready = useHydrated();
@@ -178,7 +180,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
         body: JSON.stringify({
           eventTypeId: event.id, startsAt: selSlot,
           invitee: { name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, timeZone: tz },
-          answers, guests: guests.map((g) => g.trim()).filter(Boolean), idempotencyKey: idemKey.current, consent: true, embed: !!embed,
+          answers, guests: guests.map((g) => g.trim()).filter(Boolean), idempotencyKey: idemKey.current, consent: true, embed: !!embed, context: contextToken,
         }),
       });
       const data = (await r.json().catch(() => null)) as (ApiError & { booking?: { startsAt: string; endsAt: string; status: string; meetingUrl: string | null }; manageToken?: string | null; requiresPayment?: boolean; meetPending?: boolean; series?: { id: string; startsAt: string; endsAt: string; status: string }[] }) | null;
@@ -277,7 +279,7 @@ export function BookingFlow({ event, embed, rescheduleToken, prefill, currentSta
         {event.kind === "group" && <span>Group session (up to {event.capacity} attendees)</span>}
         {event.recurrence && !reschedule && <span style={{ display: "flex", gap: 8, alignItems: "center" }} data-testid="series-summary"><RefreshCw size={16} aria-hidden /> {event.recurrence.count} {event.recurrence.interval === "week" ? "weekly" : "monthly"} sessions</span>}
         {event.requiresConfirmation && !reschedule && <span>The host approves each request</span>}
-        {event.notetaker && <span>A notetaker will record (audio and video) and transcribe this meeting; notes are shared with attendees</span>}
+        {event.notetaker && <span>A notetaker will record (audio and video) and transcribe this meeting for the host</span>}
       </div>
       {selSlot && step !== "pick" && (
         <div style={{ fontWeight: 600, display: "grid", gap: 2, marginTop: 4 }}>

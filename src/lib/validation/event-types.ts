@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const EVENT_KINDS = ["one_on_one", "group", "collective", "round_robin"] as const;
-export const LOCATION_TYPES = ["google_meet", "zoom", "teams", "custom_url", "in_person", "phone", "invitee_phone"] as const;
+export const LOCATION_TYPES = ["google_meet", "zoom", "teams", "custom_url", "in_person", "phone", "invitee_phone", "zoho_meeting"] as const;
 export const QUESTION_TYPES = ["short_text", "long_text", "email", "phone", "dropdown", "radio", "checkbox"] as const;
 export const OPTION_QUESTION_TYPES = ["dropdown", "radio", "checkbox"] as const;
 export const TEAM_KINDS = ["collective", "round_robin"] as const;
@@ -26,6 +26,7 @@ export const LOCATION_LABELS: Record<LocationType, string> = {
   google_meet: "Google Meet",
   zoom: "Zoom",
   teams: "Microsoft Teams",
+  zoho_meeting: "Zoho Meeting",
   custom_url: "Custom link",
   in_person: "In person",
   phone: "Host calls invitee",
@@ -122,7 +123,7 @@ export const eventTypeInputSchema = z
     priceAmount: z.number().int().min(1).max(100_000_000).nullable().optional(), // minor units
     priceCurrency: z.preprocess(emptyToNull, z.string().trim().toUpperCase().length(3, "3-letter currency code").nullable().optional()),
     paymentProvider: z.enum(["stripe", "razorpay"]).nullable().optional(),
-    reminders: z.array(z.number().int().min(1).max(60 * 24 * 30)).max(5).default([1440, 60]),
+    reminders: z.array(z.number().int().min(0).max(60 * 24 * 30)).max(5).default([0, 10]),
     recurrence: z
       .object({ count: z.number().int().min(2).max(52), interval: z.enum(["week", "month"]) })
       .nullable()

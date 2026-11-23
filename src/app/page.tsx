@@ -48,7 +48,7 @@ async function Pricing() {
                 {l.analytics === true && <li className="flex gap-2"><Check className="mt-0.5 size-4 shrink-0 text-success" />Analytics</li>}
                 {l.sso === true && <li className="flex gap-2"><Check className="mt-0.5 size-4 shrink-0 text-success" />SSO</li>}
               </ul>
-              <Button asChild variant={p.id === "professional" ? "default" : "secondary"} className="mt-5"><Link href="/signup">{p.id === "enterprise" ? "Contact us" : "Get started"}</Link></Button>
+              <Button asChild variant={p.id === "professional" ? "default" : "secondary"} className="mt-5"><Link href="/login">{p.id === "enterprise" ? "Contact us" : "Sign in"}</Link></Button>
             </div>
           );
         })}
@@ -70,7 +70,7 @@ export default function Home() {
             <a href="#pricing" className="hidden px-3 text-sm text-muted-foreground hover:text-foreground sm:block">Pricing</a>
             <ThemeToggle />
             <Button asChild variant="ghost" size="sm"><Link href="/login">Sign in</Link></Button>
-            <Button asChild size="sm"><Link href="/signup">Get started</Link></Button>
+            <Button asChild size="sm"><Link href="/login">Sign in</Link></Button>
           </nav>
         </div>
       </header>
@@ -83,7 +83,7 @@ export default function Home() {
             <h1 className="text-4xl font-semibold tracking-tight sm:text-6xl">Let people book time with you, <span className="text-brand">effortlessly</span></h1>
             <p className="mx-auto mt-5 max-w-2xl text-lg text-muted-foreground">{APP_NAME} connects your calendars, shows your real availability and confirms meetings automatically, for you and your whole team.</p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Button asChild size="lg"><Link href="/signup">Start for free</Link></Button>
+              <Button asChild size="lg"><Link href="/login">Sign in with Zoho</Link></Button>
               <Button asChild size="lg" variant="secondary"><Link href="/login">Sign in</Link></Button>
             </div>
           </div>

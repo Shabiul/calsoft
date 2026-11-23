@@ -1,10 +1,14 @@
 import { z } from "zod";
 
-export function isValidTimeZone(tz: string): boolean {
-  try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; }
-}
+import { isValidTimeZone, normalizeTimeZone } from "@/lib/timezone";
+export { isValidTimeZone };
 
-export const tzSchema = z.string().min(1).max(64).refine(isValidTimeZone, "Invalid time zone");
+/** Accepts IANA ids and Windows zone names (Outlook/Exchange: "FLE Standard Time"); the parsed value is always the IANA id. */
+export const tzSchema = z.string().min(1).max(64).transform((s, ctx) => {
+  const tz = normalizeTimeZone(s);
+  if (!tz) ctx.addIssue({ code: "custom", message: "Invalid time zone" });
+  return tz ?? s;
+});
 const isoSchema = z.iso.datetime({ offset: true });
 
 export const slotsQuerySchema = z.object({
@@ -34,8 +38,15 @@ export const bookBodySchema = z.object({
   idempotencyKey: z.string().min(8).max(100).regex(/^[A-Za-z0-9._:-]+$/),
   consent: z.literal(true, { error: "You must accept the privacy notice" }),
   embed: z.boolean().optional(),
+  /** Personal context link token (?ctx=); attaches the salesperson's internal meeting context. */
+  context: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).optional(),
 });
 export type BookBody = z.infer<typeof bookBodySchema>;
+/** ?ctx= value of a personal context link, or undefined when absent/malformed. */
+export const contextToken = (v: string | string[] | undefined) => {
+  const t = Array.isArray(v) ? v[0] : v;
+  return t && /^[A-Za-z0-9_-]{16,64}$/.test(t) ? t : undefined;
+};
 
 export const rescheduleBodySchema = z.object({ startsAt: isoSchema, timeZone: tzSchema });
 export const cancelBodySchema = z.object({ reason: z.string().trim().max(500).optional(), scope: z.enum(["occurrence", "series"]).optional() });

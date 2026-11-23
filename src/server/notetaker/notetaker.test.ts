@@ -30,11 +30,16 @@ describe("notetaker", () => {
       eventType: { id: "e", title: "Architecture", description: null, locationValue: null, cancellationPolicy: null, priceAmount: null, priceCurrency: null },
       host: { id: "h", name: "Host", email: "h@example.com" }, invitee: { name: "Jane", email: "j@example.com" },
     };
-    const m = renderNotification("notes_ready", ctx, "invitee", { summary: "Summary\n<b>x</b>" });
-    expect(m.subject).toBe("Meeting notes: Architecture with Host");
+    const m = renderNotification("notes_ready", ctx, "host", { summary: "Summary\n<b>x</b>" });
+    expect(m.subject).toBe("Meeting notes: Architecture with Jane");
     expect(m.html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(m.html).toContain(`/notes/${notesToken(id)}`);
     expect(m.text).toContain("Open meeting notes:");
+    // Notes are host-only: no invitee email (confirmation, reminder, ...) carries the notes link.
+    for (const kind of ["confirmation", "reminder", "notes_ready"] as const) {
+      const inv = renderNotification(kind, ctx, "invitee", { summary: "s" });
+      expect(inv.html + inv.text).not.toContain("/notes/");
+    }
   });
 });
 

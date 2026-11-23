@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { CalendarPlus, Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
-import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label } from "@/components/ui";
+import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Input, Label, Textarea } from "@/components/ui";
 import { getMeetingUrlAction, getScheduleSlotsAction, scheduleMeetingAction } from "@/app/(app)/dashboard/scheduled/actions";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -21,6 +21,7 @@ export function ScheduleMeetingDialog({ events, timeZone }: { events: { id: stri
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [guests, setGuests] = useState<string[]>([]);
+  const [context, setContext] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState<string | null>(null); // booking id while the Meet link is being created
 
@@ -64,9 +65,9 @@ export function ScheduleMeetingDialog({ events, timeZone }: { events: { id: stri
     const g = guests.map((x) => x.trim()).filter(Boolean);
     if (g.some((x) => !EMAIL.test(x))) return setError("One of the attendee emails is invalid");
     start(async () => {
-      const r = await scheduleMeetingAction({ eventTypeId: eventId, startsAt: slot, timeZone, invitee: { name: name.trim(), email: email.trim() }, guests: g });
+      const r = await scheduleMeetingAction({ eventTypeId: eventId, startsAt: slot, timeZone, invitee: { name: name.trim(), email: email.trim() }, guests: g, context: context.trim() || undefined });
       if (!r.ok) return setError(r.error.message);
-      setName(""); setEmail(""); setGuests([]); setSlot("");
+      setName(""); setEmail(""); setGuests([]); setSlot(""); setContext("");
       if (r.data.meetPending) { setPreparing(r.data.bookingId); return; }
       toast.success("Meeting scheduled. Invitations sent.");
       setOpen(false);
@@ -126,6 +127,11 @@ export function ScheduleMeetingDialog({ events, timeZone }: { events: { id: stri
             {guests.length < 10 && (
               <Button type="button" variant="outline" size="sm" className="justify-self-start" onClick={() => setGuests((a) => [...a, ""])}><Plus /> Add attendee</Button>
             )}
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="sm-context">Meeting context (internal, optional)</Label>
+            <Textarea id="sm-context" rows={3} maxLength={5000} value={context} onChange={(e) => setContext(e.target.value)}
+              placeholder="Who they are, what they need, where the deal stands. Only you and your team see this; the invitee never does." />
           </div>
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>

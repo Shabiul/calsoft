@@ -22,9 +22,9 @@ export const tstzrange = customType<{ data: string }>({ dataType: () => "tstzran
 export const orgRole = pgEnum("org_role", ["owner", "admin", "member"]);
 export const platformRole = pgEnum("platform_role", ["user", "superadmin"]);
 export const eventKind = pgEnum("event_kind", ["one_on_one", "group", "collective", "round_robin"]);
-export const locationType = pgEnum("location_type", ["google_meet", "zoom", "teams", "custom_url", "in_person", "phone", "invitee_phone"]);
+export const locationType = pgEnum("location_type", ["google_meet", "zoom", "teams", "custom_url", "in_person", "phone", "invitee_phone", "zoho_meeting"]);
 export const bookingStatus = pgEnum("booking_status", ["pending_payment", "pending_confirmation", "confirmed", "cancelled", "rescheduled", "completed", "no_show", "expired"]);
-export const providerEnum = pgEnum("calendar_provider", ["google", "microsoft"]);
+export const providerEnum = pgEnum("calendar_provider", ["google", "microsoft", "zoho"]);
 export const paymentStatus = pgEnum("payment_status", ["requires_payment", "pending", "paid", "failed", "refunded", "partially_refunded"]);
 export const jobStatus = pgEnum("delivery_status", ["queued", "sent", "failed", "dead"]);
 
@@ -44,9 +44,13 @@ export const users = pgTable("user", {
   dateFormat: text("date_format").notNull().default("MM/dd/yyyy"),
   timeFormat: text("time_format").notNull().default("12h"),
   platformRole: platformRole("platform_role").notNull().default("user"),
-  status: text("status").notNull().default("active"), // active | suspended
+  status: text("status").notNull().default("active"), // active | suspended | benched | deleted
   brandColor: text("brand_color"), logoUrl: text("logo_url"),
   deletedAt: tstz("deleted_at"),
+  /** Last sign-in / app use (see server/services/bench.ts). Team members idle for 20 days are benched. */
+  lastActiveAt: tstz("last_active_at").notNull().defaultNow(),
+  /** Inactivity state: warning stage sent (1 = day 14, 2 = day 18), and when benched, which event types the bench paused. */
+  bench: jsonb("bench").$type<{ stage: number; benchedAt?: string; pausedEventTypeIds?: string[] } | null>(),
 });
 export const sessions = pgTable("session", {
   id: text("id").primaryKey(),
@@ -91,6 +95,8 @@ export const organizationMembers = pgTable("organization_member", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   role: orgRole("role").notNull().default("member"),
   permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /** Who takes over this member's meetings when they are benched (any team member). Null = the team's owners/admins. */
+  managerUserId: text("manager_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: createdAt(),
 }, (t) => [uniqueIndex("org_member_uq").on(t.organizationId, t.userId), index("org_member_user_idx").on(t.userId)]);
 export const invitations = pgTable("invitation", {
@@ -155,7 +161,7 @@ export const eventTypes = pgTable("event_type", {
   priceAmount: integer("price_amount"), // minor units
   priceCurrency: text("price_currency"), paymentProvider: text("payment_provider"),
   recurrence: jsonb("recurrence").$type<{ count: number; interval: "week" | "month" } | null>(),
-  reminders: jsonb("reminders").$type<number[]>().notNull().default([1440, 60]), // minutes before
+  reminders: jsonb("reminders").$type<number[]>().notNull().default([0, 10]), // minutes before; 0 = 9:00 AM on the day
   isActive: boolean("is_active").notNull().default(true), isOneOff: boolean("is_one_off").notNull().default(false),
   archivedAt: tstz("archived_at"), deletedAt: tstz("deleted_at"),
   createdAt: createdAt(), updatedAt: updatedAt(),
@@ -209,7 +215,10 @@ export const bookings = pgTable("booking", {
   idempotencyKey: text("idempotency_key").unique(),
   rescheduledFromId: uuid("rescheduled_from_id"),
   cancelledAt: tstz("cancelled_at"), cancelReason: text("cancel_reason"), cancelledBy: text("cancelled_by"),
+  /** Internal meeting context (host/team only, never shown or sent to invitees). Set when a salesperson schedules it, editable later. */
   hostNotes: text("host_notes"), manageTokenHash: text("manage_token_hash").unique(),
+  /** Team member who scheduled it (dashboard "Schedule meeting" or a context link); they can see the booking and its context. */
+  scheduledByUserId: text("scheduled_by_user_id").references(() => users.id, { onDelete: "set null" }),
   exclusiveSlot: boolean("exclusive_slot").notNull().default(true),
   seriesId: uuid("series_id"), holdExpiresAt: tstz("hold_expires_at"),
   createdAt: createdAt(), updatedAt: updatedAt(),
@@ -219,6 +228,19 @@ export const bookings = pgTable("booking", {
   index("booking_org_idx").on(t.organizationId, t.startsAt),
   index("booking_status_idx").on(t.status),
 ]);
+/**
+ * A personal booking link with meeting context: /<event>?ctx=<token>. When the prospect books through it, `notes` become the
+ * booking's internal context (hostNotes) and the creator is recorded as the scheduler. Single use. The notes never reach the browser.
+ */
+export const meetingContexts = pgTable("meeting_context", {
+  id: id(),
+  token: text("token").notNull().unique(),
+  eventTypeId: uuid("event_type_id").notNull().references(() => eventTypes.id, { onDelete: "cascade" }),
+  createdByUserId: text("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  notes: text("notes").notNull(),
+  bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "cascade" }),
+  createdAt: createdAt(),
+});
 export const invitees = pgTable("invitee", {
   id: id(), bookingId: uuid("booking_id").notNull().references(() => bookings.id, { onDelete: "cascade" }),
   contactId: uuid("contact_id").references(() => contacts.id),
@@ -400,7 +422,7 @@ export const platformSettings = pgTable("platform_setting", {
   updatedAt: updatedAt(),
 });
 
-/** Shared meeting notes (one per booking): written by host/attendees via /notes/<token>; transcript + summary filled by the notetaker. */
+/** Meeting notes (one per booking), private to the host: written via /notes/<token> (host session required); transcript + summary filled by the notetaker. */
 export const meetingNotes = pgTable("meeting_note", {
   bookingId: uuid("booking_id").primaryKey().references(() => bookings.id, { onDelete: "cascade" }),
   content: text("content").notNull().default(""),

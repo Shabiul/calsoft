@@ -1,18 +1,21 @@
 import { Suspense } from "react";
 import { DateTime } from "luxon";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { getNotes, verifyNotesToken } from "@/server/notetaker";
+import { notFound, redirect } from "next/navigation";
+import { getNotes, hostNotesBooking } from "@/server/notetaker";
+import { getSession } from "@/lib/auth-session";
 import { loadBookingContext } from "@/server/notifications/context";
 import { formatRange } from "@/server/notifications/templates";
 import { PublicShell } from "@/components/booking/PublicShell";
 import { PageFrame, FlowSkeleton } from "@/components/booking/PublicChrome";
 import { NotesEditor } from "@/components/booking/NotesEditor";
+import { RecordingPanel } from "@/components/booking/RecordingPanel";
+import { audioNotesConfigured } from "@/server/notetaker/audio";
 import { APP_NAME } from "@/lib/brand";
 
 type P = { params: Promise<{ token: string }> };
 
-// Capability URL (anyone with the link can edit): never index, never leak the token via referrer.
+// Host-only (signed in as the booking's host, see hostNotesBooking): never index, never leak the token via referrer.
 export const metadata: Metadata = {
   title: `Meeting notes | ${APP_NAME}`,
   robots: { index: false, follow: false, nocache: true },
@@ -29,7 +32,10 @@ export default function NotesPage({ params }: P) {
 
 async function Notes({ params }: P) {
   const { token } = await params;
-  const bookingId = verifyNotesToken(token);
+  const session = await getSession();
+  if (!session) redirect(`/login?next=${encodeURIComponent(`/notes/${token}`)}`);
+  // Non-hosts (invitees, other users) get a plain 404: the page does not reveal that notes exist.
+  const bookingId = await hostNotesBooking(token, session.user.id);
   const ctx = bookingId ? await loadBookingContext(bookingId) : null;
   if (!bookingId || !ctx) notFound();
   const n = await getNotes(bookingId);
@@ -51,7 +57,9 @@ async function Notes({ params }: P) {
           </header>
 
           {n.botStatus === "scheduled" && <p className="mf-alert mf-alert-info" style={{ margin: 0 }}>A notetaker will join this meeting. The transcript and an AI summary appear here after it ends.</p>}
-          {n.botStatus === "failed" && <p className="mf-alert mf-alert-err" style={{ margin: 0 }}>The notetaker could not record this meeting (it may not have been let in).</p>}
+          {n.botStatus === "failed" && n.botId && <p className="mf-alert mf-alert-err" style={{ margin: 0 }}>The notetaker could not record this meeting (it may not have been let in).</p>}
+
+          {!n.botId && audioNotesConfigured() && <RecordingPanel token={token} status={n.botStatus} />}
 
           {n.botId && n.botStatus === "done" && (!n.recordingExpiresAt || n.recordingExpiresAt > new Date()) && (
             <section>
@@ -96,7 +104,7 @@ async function Notes({ params }: P) {
           )}
 
           <section>
-            <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Shared notes</h2>
+            <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Your notes</h2>
             <NotesEditor token={token} initial={n.content} initialUpdatedAt={n.updatedAt ? n.updatedAt.toISOString() : null} />
           </section>
 

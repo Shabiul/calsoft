@@ -9,6 +9,8 @@ import { attemptInfo } from "./runtime";
 import { INTEGRATION_JOB, processIntegrationJob } from "@/server/integrations/booking-sync";
 import { syncAllDue } from "@/server/integrations/sync";
 import { collectNotes, NOTETAKER_COLLECT_JOB } from "@/server/notetaker";
+import { benchSweep } from "@/server/services/bench";
+import { NOTES_AUDIO_JOB, processAudioNotes, type AudioJob } from "@/server/notetaker/audio";
 import { reconcilePayments, refundForCancelledBooking } from "@/server/payments/service";
 
 /** Cancelled bookings with a paid payment are refunded per policy right away (reconcile sweeps any misses). */
@@ -42,6 +44,7 @@ export async function processEvents(job: Job<EventJobData>) {
 export async function processNotifications(job: Job) {
   if (job.name === "fanout") return handleNotificationEvent(job.data as EventJobData);
   if (job.name === "send") return processNotification(job.data as NotificationJobData, attemptInfo(job));
+  if (job.name === NOTES_AUDIO_JOB) return processAudioNotes(job.data as AudioJob, attemptInfo(job));
   throw new Error(`unknown notifications job ${job.name}`);
 }
 export async function processWebhooks(job: Job) {
@@ -61,6 +64,7 @@ export const SCHEDULER_JOBS = {
   requeueStale: { id: "requeue-stale", everyMs: 5 * 60_000 },
   calendarSync: { id: "calendar-sync", everyMs: 10 * 60_000 },
   paymentsReconcile: { id: "payments-reconcile", everyMs: 5 * 60_000 },
+  benchSweep: { id: "bench-sweep", everyMs: 6 * 3600_000 },
 } as const;
 
 export async function processScheduler(job: Job) {
@@ -77,6 +81,7 @@ export async function processScheduler(job: Job) {
     case SCHEDULER_JOBS.requeueStale.id: return requeueStaleNotifications();
     case SCHEDULER_JOBS.calendarSync.id: return syncAllDue();
     case SCHEDULER_JOBS.paymentsReconcile.id: return reconcilePayments();
+    case SCHEDULER_JOBS.benchSweep.id: return benchSweep();
     case PAYMENT_REFUND_JOB: return refundForCancelledBooking((job.data as { bookingId: string }).bookingId);
     case NOTETAKER_COLLECT_JOB: return collectNotes(job.data as { bookingId: string; botId: string }, attemptInfo(job));
     case INTEGRATION_JOB: return processIntegrationJob(job.data as { bookingId: string; attempt?: number });

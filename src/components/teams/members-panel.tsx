@@ -7,11 +7,18 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, toast,
 } from "@/components/ui";
 import {
-  changeRoleAction, leaveOrganizationAction, removeMemberAction, setPermissionsAction, transferOwnershipAction,
+  changeRoleAction, leaveOrganizationAction, reactivateMemberAction, removeMemberAction, setManagerAction, setPermissionsAction, transferOwnershipAction,
 } from "@/app/(app)/dashboard/teams/actions";
 
 type Role = "owner" | "admin" | "member";
-export type MemberView = { userId: string; name: string; email: string; image: string | null; role: Role; permissions: string[]; joinedAt: string };
+export type MemberView = {
+  userId: string; name: string; email: string; image: string | null; role: Role; permissions: string[]; joinedAt: string;
+  status: string; lastActiveAt: string; managerUserId: string | null;
+};
+
+/** Mirrors BENCH_RULES in server/services/bench.ts. */
+const WARN_DAYS = 14;
+const idleDays = (iso: string) => Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
 
 /** Mirrors ORG_PERMISSIONS in the service (kept inline so this client bundle does not import server code). */
 const PERMISSIONS = [
@@ -56,12 +63,31 @@ export function MembersPanel({ orgId, currentUserId, actorRole, members }: { org
           const me = m.userId === currentUserId;
           const canRemove = !me && actorRole !== "member" && (actorRole === "owner" || RANK[m.role] < RANK[actorRole]);
           const canPerms = actorRole !== "member" && m.role === "member";
+          const isAdmin = actorRole !== "member";
+          const canReactivate = !me && (isAdmin || m.managerUserId === currentUserId);
+          const benched = m.status === "benched";
+          const idle = idleDays(m.lastActiveAt);
+          const manager = members.find((x) => x.userId === m.managerUserId);
           return (
             <div key={m.userId} className="flex flex-wrap items-center gap-3 p-4">
               <Avatar src={m.image} name={m.name} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 truncate font-medium">{m.name}{me && <span className="text-xs font-normal text-muted-foreground">(you)</span>}</div>
                 <div className="truncate text-xs text-muted-foreground">{m.email}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {benched && <Badge variant="destructive">Benched, meetings moved to manager</Badge>}
+                  {!benched && idle >= WARN_DAYS && <Badge variant="warning">Inactive {idle} days</Badge>}
+                  {isAdmin && !me ? (
+                    <label className="flex items-center gap-1">Manager
+                      <select aria-label={`Manager for ${m.name}`} value={m.managerUserId ?? ""} disabled={pending}
+                        className="h-7 rounded-md border border-input bg-card px-1 text-xs"
+                        onChange={(e) => run(() => setManagerAction(orgId, m.userId, e.target.value || null), "Manager updated")}>
+                        <option value="">Team owners &amp; admins</option>
+                        {members.filter((x) => x.userId !== m.userId).map((x) => <option key={x.userId} value={x.userId}>{x.name}</option>)}
+                      </select>
+                    </label>
+                  ) : manager && <span>Manager: {manager.name}</span>}
+                </div>
                 {m.role === "member" && m.permissions.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">{m.permissions.map((p) => <Badge key={p} variant="outline" className="text-[10px]">{PERMISSIONS.find((x) => x.key === p)?.label ?? p}</Badge>)}</div>
                 )}
@@ -76,12 +102,17 @@ export function MembersPanel({ orgId, currentUserId, actorRole, members }: { org
               <DropdownMenu>
                 <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${m.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {canReactivate && (benched || idle >= WARN_DAYS) && (
+                    <DropdownMenuItem onSelect={() => run(() => reactivateMemberAction(orgId, m.userId), benched ? `${m.name} restored` : `${m.name} marked as active`)}>
+                      {benched ? "Restore (un-bench)" : "Mark as active"}
+                    </DropdownMenuItem>
+                  )}
                   {canPerms && <DropdownMenuItem onSelect={() => { setPermFor(m); setPerms(m.permissions); }}>Edit permissions</DropdownMenuItem>}
                   {actorRole === "owner" && !me && <DropdownMenuItem onSelect={() => transfer(m)}>Transfer ownership</DropdownMenuItem>}
                   {(canPerms || (actorRole === "owner" && !me)) && (canRemove || me) && <DropdownMenuSeparator />}
                   {me && <DropdownMenuItem onSelect={leave} className="text-destructive">Leave team</DropdownMenuItem>}
                   {canRemove && <DropdownMenuItem onSelect={() => remove(m)} className="text-destructive">Remove from team</DropdownMenuItem>}
-                  {!canPerms && !canRemove && !me && !(actorRole === "owner") && <DropdownMenuItem disabled>No actions available</DropdownMenuItem>}
+                  {!canPerms && !canRemove && !me && !(actorRole === "owner") && !(canReactivate && (benched || idle >= WARN_DAYS)) && <DropdownMenuItem disabled>No actions available</DropdownMenuItem>}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { saveNotes, verifyNotesToken } from "@/server/notetaker";
+import { saveNotes, hostNotesBooking } from "@/server/notetaker";
+import { getSession } from "@/lib/auth-session";
 import { handleError, jsonError, jsonOk, readJson } from "@/server/public/http";
 import { limitOr429 } from "@/server/ratelimit";
 
@@ -11,7 +12,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ token: stri
   try {
     const limited = await limitOr429(req, "notes-put", 120, 60);
     if (limited) return limited;
-    const bookingId = verifyNotesToken((await ctx.params).token);
+    const bookingId = await hostNotesBooking((await ctx.params).token, (await getSession())?.user.id);
     if (!bookingId) return jsonError("NOT_FOUND", "Notes not found.", 404);
     const v = body.safeParse(await readJson(req, 200_000));
     if (!v.success) return jsonError("VALIDATION", "Invalid notes.", 422);
