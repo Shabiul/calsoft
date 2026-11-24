@@ -43,7 +43,7 @@ async function Content({ searchParams }: { searchParams: SP }) {
         </nav>
       )}
       <p className="text-sm text-muted-foreground">
-        {org.name}: {data.members.length} {data.members.length === 1 ? "person" : "people"}. You are viewing as <strong>{roleLabel(data.viewerRole)}</strong>. Times are in {tz}.
+        {org.name}: {data.members.length} {data.members.length === 1 ? "person" : "people"}. You are viewing as <strong>{roleLabel(data.viewerRole)}</strong>. Times are in {tz}. <a href={`/dashboard/team-activity/export?org=${org.id}`} className="underline">Download CSV</a>
       </p>
 
       <Card className="overflow-x-auto">

@@ -45,11 +45,13 @@ export interface RecentSignIn { userId: string; name: string; provider: string |
 
 export async function getTeamOverview(viewerId: string, orgId: string, now = new Date(), db: Db = defaultDb) {
   const { role: viewerRole, orgName } = await requireOversight(viewerId, orgId, db);
-  const members = await db.select({
+  const allMembers = await db.select({
     userId: users.id, name: users.name, email: users.email, image: users.image, role: organizationMembers.role,
-    status: users.status, timeZone: users.timeZone, lastActiveAt: users.lastActiveAt,
+    status: users.status, timeZone: users.timeZone, lastActiveAt: users.lastActiveAt, managerUserId: organizationMembers.managerUserId,
   }).from(organizationMembers).innerJoin(users, eq(users.id, organizationMembers.userId))
     .where(and(eq(organizationMembers.organizationId, orgId), isNull(users.deletedAt)));
+  // Team leads see themselves and the people who report to them; managers, admins and owners see everyone.
+  const members = allMembers.filter((m) => viewerRole !== "team_lead" || m.userId === viewerId || m.managerUserId === viewerId);
   const ids = members.map((m) => m.userId);
   const since30 = new Date(now.getTime() - 30 * DAY);
 
@@ -111,6 +113,7 @@ export async function getMemberDetail(viewerId: string, orgId: string, memberId:
   }).from(organizationMembers).innerJoin(users, eq(users.id, organizationMembers.userId))
     .where(and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, memberId), isNull(users.deletedAt))).limit(1);
   if (!m) throw new AppError("NOT_FOUND", "That person is not on this team", 404);
+  if (viewerRole === "team_lead" && m.userId !== viewerId && m.managerUserId !== viewerId) throw new AppError("FORBIDDEN", "Team leads can view their own direct reports", 403);
 
   const [mgr] = m.managerUserId ? await db.select({ name: users.name }).from(users).where(eq(users.id, m.managerUserId)).limit(1) : [];
 

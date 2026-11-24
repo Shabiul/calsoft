@@ -8,6 +8,7 @@ import { supabaseSignIn } from "./supabase-plugin";
 import { supabaseLoginEnabled } from "@/server/services/supabase-auth";
 import { db, schema } from "@/server/db";
 import { APP_NAME } from "./brand";
+import { alertOnNewBrowser } from "@/server/services/my-privacy";
 import { accountMayUseApp, ensureSuperadmin } from "@/server/services/account-access";
 import { zohoProfileToUser, type ZohoProfile } from "./zoho-profile";
 import { describeDevice, providerFromContext } from "./sign-in-info";
@@ -112,10 +113,10 @@ export const auth = betterAuth({
         // Durable sign-in history for managers (the session table loses rows on sign-out). Never blocks a sign-in.
         after: async (session, context) => {
           try {
-            await db.insert(schema.signInLogs).values({
-              userId: session.userId, provider: providerFromContext(context as never),
-              device: describeDevice((session as { userAgent?: string | null }).userAgent),
-            });
+            const provider = providerFromContext(context as never);
+            const device = describeDevice((session as { userAgent?: string | null }).userAgent);
+            await alertOnNewBrowser(session.userId, device, provider); // before this sign-in is logged, so "new" means never seen before
+            await db.insert(schema.signInLogs).values({ userId: session.userId, provider, device });
           } catch (err) {
             console.error("[auth] sign-in log failed:", (err as Error).message);
           }

@@ -22,6 +22,8 @@ export default async function AdminSignIns({ searchParams }: { searchParams: SP 
         <label className="text-xs">From <input type="date" name="from" defaultValue={f.from} className={inputCls} /></label>
         <label className="text-xs">To <input type="date" name="to" defaultValue={f.to} className={inputCls} /></label>
         <Button type="submit" variant="secondary">Filter</Button>
+        <a href={`/admin/sign-ins/export?${new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString()}`} className="text-sm underline">Download CSV</a>
+        <a href="/admin/audit?action=sign_in_refused" className="text-sm underline">Refused sign-ins</a>
       </form>
       <DataTable
         rows={rows} rowKey={(r) => r.id} empty={<p className="rounded-xl border p-6 text-sm text-muted-foreground">No sign-ins match.</p>}

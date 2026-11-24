@@ -46,6 +46,7 @@ beforeAll(async () => {
     { organizationId: orgB, userId: OWNER_B, role: "owner" }, { organizationId: orgB, userId: Y, role: "member" },
   ]);
 
+  await db.update(schema.organizationMembers).set({ managerUserId: TL }).where(and(eq(schema.organizationMembers.organizationId, orgA), eq(schema.organizationMembers.userId, M1)));
   // M1: a personal event type and an org event type, both booked; sign-ins; a broken calendar connection; a Google login
   const [pe] = await db.insert(schema.eventTypes).values({ ownerUserId: M1, slug: `m1-${run}`, title: "Mia personal call", minNoticeMinutes: 0, maxHorizonDays: 30 }).returning();
   const [oe] = await db.insert(schema.eventTypes).values({ organizationId: orgA, slug: `oe-${run}`, title: "Team intro", kind: "round_robin", minNoticeMinutes: 0, maxHorizonDays: 30 }).returning();
@@ -92,17 +93,23 @@ describe("who can open team activity", () => {
 });
 
 describe("team overview", () => {
-  it("shows everyone on the team with sign-ins and meetings, for a manager and for a team lead", async () => {
+  it("a team lead sees themselves and their direct reports only", async () => {
+    const o = await getTeamOverview(TL, orgA);
+    expect(o.members.map((m) => m.userId).sort()).toEqual([TL, M1].sort());
+    expect(await code(getMemberDetail(TL, orgA, M2))).toBe("FORBIDDEN");
+    expect(await code(getMemberDetail(TL, orgA, OWNER))).toBe("FORBIDDEN");
+  });
+  it("shows everyone on the team with sign-ins and meetings, for a manager and (their reports) for a team lead", async () => {
     for (const viewer of [MGR, TL]) {
       const o = await getTeamOverview(viewer, orgA);
-      expect(o.members.map((m) => m.userId).sort()).toEqual([OWNER, ADMIN, MGR, TL, M1, M2].sort());
+      if (viewer === MGR) expect(o.members.map((m) => m.userId).sort()).toEqual([OWNER, ADMIN, MGR, TL, M1, M2].sort());
       const m1 = o.members.find((m) => m.userId === M1)!;
       expect(m1).toMatchObject({ lastSignInMethod: "google", signIns30d: 2 });
       expect(m1.lastSignInAt).toBeInstanceOf(Date);
       expect(m1.meetingsNext7d).toBe(2); // the personal-link booking and the team booking
       expect(m1.nextMeetingAt).toBeInstanceOf(Date);
-      const m2 = o.members.find((m) => m.userId === M2)!;
-      expect(m2).toMatchObject({ lastSignInAt: null, signIns30d: 0, meetingsNext7d: 0, nextMeetingAt: null });
+      const m2 = o.members.find((m) => m.userId === M2);
+      if (m2) expect(m2).toMatchObject({ lastSignInAt: null, signIns30d: 0, meetingsNext7d: 0, nextMeetingAt: null });
       expect(o.recentSignIns.map((s) => s.userId)).toEqual([M1, M1]);
     }
   });
@@ -141,9 +148,9 @@ describe("member detail (meetings, schedule, sign-ins)", () => {
     expect(await code(getMemberDetail(MGR, orgA, "nobody"))).toBe("NOT_FOUND");
   });
   it("records who looked (audit log), so people can ask who viewed their data", async () => {
-    await getMemberDetail(TL, orgA, M2);
+    await getMemberDetail(MGR, orgA, M2);
     const rows = await db.select().from(schema.auditLogs).where(and(eq(schema.auditLogs.organizationId, orgA), eq(schema.auditLogs.action, "oversight.member_viewed"), eq(schema.auditLogs.entityId, M2)));
-    expect(rows.some((r) => r.actorId === TL)).toBe(true);
+    expect(rows.some((r) => r.actorId === MGR)).toBe(true);
   });
 });
 

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +46,8 @@ export function SecuritySection({ email, providers }: { email: string; providers
         <CardContent className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">{email}</span>
           {providers.map((p) => <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>)}
-          <p className="w-full text-xs text-muted-foreground">You sign in with Google or your company Zoho account. Change your password or set up multi-factor authentication with that provider.</p>
+          <p className="w-full text-xs text-muted-foreground">You sign in with Google, Zoho, or your company email. Change your password or set up multi-factor authentication with that provider.</p>
+          <p className="w-full text-xs"><Link href="/dashboard/who-viewed" className="underline">See who has viewed your meetings and sign-ins</Link></p>
         </CardContent>
       </Card>
       <SessionsCard />
