@@ -45,7 +45,7 @@ export function SecuritySection({ email, providers }: { email: string; providers
         <CardContent className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">{email}</span>
           {providers.map((p) => <Badge key={p} variant="secondary" className="capitalize">{p}</Badge>)}
-          <p className="w-full text-xs text-muted-foreground">You sign in with your company Zoho account. Change your password or set up multi-factor authentication in Zoho.</p>
+          <p className="w-full text-xs text-muted-foreground">You sign in with Google or your company Zoho account. Change your password or set up multi-factor authentication with that provider.</p>
         </CardContent>
       </Card>
       <SessionsCard />

@@ -3,7 +3,7 @@
  * detail drawer, host notes, CSV export). Mutations delegate to the booking service.
  *
  * Visibility: a user sees bookings they host, plus (for organization bookings) all bookings of orgs where
- * they are owner/admin or hold the `bookings.view_all` permission. Collective bookings have one row per host;
+ * they are owner/admin/manager/team lead or hold the `bookings.view_all` permission. Collective bookings have one row per host;
  * linked rows (`external_event_ids ? 'collectiveOf'`) are hidden and the primary row is shown once, also to
  * hosts who only own a linked row.
  */
@@ -35,7 +35,7 @@ function visible(userId: string): SQL {
       or (${B.scheduledByUserId} = ${userId} and ${B.organizationId} in (select m.organization_id from organization_member m where m.user_id = ${userId}))
       or ${B.organizationId} in (
         select m.organization_id from organization_member m
-        where m.user_id = ${userId} and (m.role in ('owner','admin') or m.permissions ? 'bookings.view_all')))
+        where m.user_id = ${userId} and (m.role in ('owner','admin','manager','team_lead') or m.permissions ? 'bookings.view_all')))
       and not (${LINKED}))
     or ${B.id} in (
         select (x.external_event_ids->>'collectiveOf')::uuid from booking x

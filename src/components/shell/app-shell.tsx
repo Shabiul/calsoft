@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   BarChart3, CalendarCheck, CalendarClock, Clock, Contact, CreditCard, ExternalLink, GitBranch, Home, LayoutList,
-  Link2, LogOut, Menu, NotebookPen, Plug, Settings, Shield, Users, Workflow,
+  Activity, Link2, LogOut, Menu, NotebookPen, Plug, Settings, Shield, Users, Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/avatar";
@@ -33,11 +33,13 @@ const NAV = [
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
-export interface ShellUser { name: string; email: string; image: string | null; username: string | null; platformRole: "user" | "superadmin" }
+export interface ShellUser { name: string; email: string; image: string | null; username: string | null; platformRole: "user" | "superadmin"; canOversee?: boolean }
 
-function NavList({ appName, onNavigate, isSuperadmin }: { appName: string; onNavigate?: () => void; isSuperadmin: boolean }) {
+function NavList({ appName, onNavigate, isSuperadmin, canOversee }: { appName: string; onNavigate?: () => void; isSuperadmin: boolean; canOversee?: boolean }) {
   const pathname = usePathname();
-  const items = isSuperadmin ? [...NAV, { href: "/admin", label: "Admin", icon: Shield, exact: false }] : NAV;
+  const teamIdx = NAV.findIndex((n) => n.href === "/dashboard/teams") + 1;
+  const base = canOversee ? [...NAV.slice(0, teamIdx), { href: "/dashboard/team-activity", label: "Team activity", icon: Activity, exact: false }, ...NAV.slice(teamIdx)] : NAV;
+  const items = isSuperadmin ? [...base, { href: "/admin", label: "Admin", icon: Shield, exact: false }] : base;
   return (
     <div className="flex h-full flex-col">
       <Link href="/dashboard" onClick={onNavigate} className="flex h-14 items-center gap-2 px-4 text-base font-semibold">
@@ -73,13 +75,13 @@ export function AppShell({ user, appName, children }: { user: ShellUser; appName
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r bg-card lg:block">
-        <NavList appName={appName} isSuperadmin={user.platformRole === "superadmin"} />
+        <NavList appName={appName} isSuperadmin={user.platformRole === "superadmin"} canOversee={user.canOversee} />
       </aside>
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="left" className="w-64 p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <SheetDescription className="sr-only">Main navigation</SheetDescription>
-          <NavList appName={appName} onNavigate={() => setOpen(false)} isSuperadmin={user.platformRole === "superadmin"} />
+          <NavList appName={appName} onNavigate={() => setOpen(false)} isSuperadmin={user.platformRole === "superadmin"} canOversee={user.canOversee} />
         </SheetContent>
       </Sheet>
 

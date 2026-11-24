@@ -13,6 +13,7 @@ import { MembersPanel } from "@/components/teams/members-panel";
 import { InvitePanel } from "@/components/teams/invite-panel";
 import { OrgSettingsForm } from "@/components/teams/org-settings-form";
 import { TeamAvailability } from "@/components/teams/team-availability";
+import { isOrgAdmin, type OrgRole } from "@/lib/org-roles";
 
 export const metadata = { title: "Team" };
 
@@ -38,7 +39,7 @@ async function Content({ params, searchParams }: P) {
   let org;
   try { org = await getOrganization(user.id, id); } catch (e) { if (isAppError(e)) notFound(); throw e; }
   const tab = TABS.find((t) => t.key === sp.tab)?.key ?? "members";
-  const isAdmin = org.role !== "member";
+  const isAdmin = isOrgAdmin(org.role);
   const origin = (process.env.APP_URL ?? "").replace(/\/$/, "");
 
   return (
@@ -74,7 +75,7 @@ async function Content({ params, searchParams }: P) {
   );
 }
 
-async function MembersTab({ orgId, userId, role, permissions, isAdmin }: { orgId: string; userId: string; role: "owner" | "admin" | "member"; permissions: string[]; isAdmin: boolean }) {
+async function MembersTab({ orgId, userId, role, permissions, isAdmin }: { orgId: string; userId: string; role: OrgRole; permissions: string[]; isAdmin: boolean }) {
   const [members, invites] = await Promise.all([listMembers(userId, orgId), isAdmin ? listInvitations(userId, orgId) : Promise.resolve([])]);
   const canInvite = isAdmin || permissions.includes("members.invite");
   return (

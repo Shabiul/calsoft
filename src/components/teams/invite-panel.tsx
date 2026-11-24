@@ -5,7 +5,7 @@ import { Copy, Mail } from "lucide-react";
 import { Badge, Button, Card, Input, Label, toast } from "@/components/ui";
 import { inviteMemberAction, resendInvitationAction, revokeInvitationAction } from "@/app/(app)/dashboard/teams/actions";
 
-type Role = "owner" | "admin" | "member";
+import { isOrgAdmin, roleLabel, type OrgRole as Role } from "@/lib/org-roles";
 export type InviteView = { id: string; email: string; role: Role; expiresAt: string; expired: boolean; invitedBy: string | null };
 
 async function copy(text: string) {
@@ -57,7 +57,9 @@ export function InvitePanel({ orgId, actorRole, invites, canSeeInvites }: { orgI
             <Label htmlFor="invite-role">Role</Label>
             <select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as Role)} className="h-9 rounded-md border border-input bg-card px-2 text-sm">
               <option value="member">Member</option>
-              {actorRole !== "member" && <option value="admin">Admin</option>}
+              {isOrgAdmin(actorRole) && <option value="team_lead">Team lead</option>}
+              {isOrgAdmin(actorRole) && <option value="manager">Manager</option>}
+              {isOrgAdmin(actorRole) && <option value="admin">Admin</option>}
               {actorRole === "owner" && <option value="owner">Owner</option>}
             </select>
           </div>

@@ -14,15 +14,15 @@ import { sha256, randomToken } from "@/lib/crypto";
 import { validateUsername } from "@/lib/username";
 import { authEmailTemplate } from "@/lib/auth-email";
 import { APP_NAME } from "@/lib/brand";
-import { isCompanyEmail } from "@/lib/company-email";
 import { getEmailProvider } from "@/server/notifications/provider";
 import { expandAvailability, subtractIntervals, type Interval } from "@/server/scheduling/availability";
 import { isHandleTaken } from "./username";
 
 const { organizations, organizationMembers, invitations, users, eventHosts, eventTypes, auditLogs } = schema;
 
-export type OrgRole = "owner" | "admin" | "member";
-const RANK: Record<OrgRole, number> = { member: 1, admin: 2, owner: 3 };
+import { ROLE_RANK as RANK, ORG_ROLES, ROLE_LABELS, OVERSIGHT_ROLES, canOversee, isOrgAdmin, roleLabel, type OrgRole } from "@/lib/org-roles";
+export { ORG_ROLES, ROLE_LABELS, OVERSIGHT_ROLES, canOversee, isOrgAdmin };
+export type { OrgRole };
 
 /** Fine-grained permissions that can be granted to plain members. Admins and owners implicitly have all. */
 export const ORG_PERMISSIONS = [
@@ -249,16 +249,21 @@ export async function leaveOrganization(userId: string, orgId: string, db: Db = 
   });
 }
 
-/** Owner-only. Admin/member/owner changes alike (an admin cannot promote themselves). */
+/**
+ * Owners can set any role. Admins can set manager / team lead / member, and only for people below admin (an admin can neither
+ * promote anyone to admin or owner, nor change an admin or owner, themselves included). The last-owner guard still applies to owners.
+ */
 export async function changeMemberRole(actorId: string, orgId: string, targetUserId: string, role: OrgRole, db: Db = defaultDb): Promise<void> {
   if (!(role in RANK)) throw new AppError("VALIDATION", "Invalid role", 422);
-  await requireOrgRole(actorId, orgId, "owner", db);
+  const actor = await requireOrgRole(actorId, orgId, "admin", db);
+  if (actor.role !== "owner" && RANK[role] >= RANK.admin) throw new AppError("FORBIDDEN", "Only an owner can grant admin or owner rights", 403);
   await db.transaction(async (tx) => {
     const owners = await lockOwners(tx, orgId);
     const [t] = await tx.select({ role: organizationMembers.role }).from(organizationMembers)
       .where(and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, targetUserId))).limit(1);
     if (!t) throw new AppError("NOT_FOUND", "That person is not a member", 404);
     if (t.role === role) return;
+    if (actor.role !== "owner" && RANK[t.role] >= RANK.admin) throw new AppError("FORBIDDEN", "Only an owner can change an admin or owner", 403);
     if (t.role === "owner" && owners.length <= 1) throw new AppError("LAST_OWNER", "An organization must keep at least one owner.", 409);
     await tx.update(organizationMembers).set({ role }).where(and(eq(organizationMembers.organizationId, orgId), eq(organizationMembers.userId, targetUserId)));
     await audit(tx, actorId, orgId, "member.role_changed", targetUserId, { from: t.role, to: role });
@@ -302,7 +307,7 @@ async function sendInviteEmail(orgName: string, inviterName: string, email: stri
   try {
     const t = authEmailTemplate({
       heading: `Join ${orgName} on ${APP_NAME}`,
-      body: `${inviterName} invited you to join ${orgName} as ${role === "admin" ? "an admin" : `a ${role}`}. This invitation expires in ${INVITE_TTL_DAYS} days.`,
+      body: `${inviterName} invited you to join ${orgName} as ${role === "admin" ? "an admin" : `a ${roleLabel(role).toLowerCase()}`}. This invitation expires in ${INVITE_TTL_DAYS} days.`,
       cta: "Accept invitation", url,
     });
     await getEmailProvider().send({ to: email, subject: `${inviterName} invited you to ${orgName}`, ...t });
@@ -317,8 +322,6 @@ export async function inviteMember(actorId: string, orgId: string, input: { emai
   const actor = await requireOrgPermission(actorId, orgId, "members.invite", db);
   const email = String(input.email ?? "").trim().toLowerCase();
   if (!EMAIL_RE.test(email) || email.length > 254) throw new AppError("VALIDATION", "Enter a valid email address", 422, [{ path: "email", message: "Invalid email" }]);
-  // Only company Zoho accounts can sign in, so an outside address could never accept.
-  if (!isCompanyEmail(email)) throw new AppError("VALIDATION", "Invite a company email address: only company Zoho accounts can sign in", 422, [{ path: "email", message: "Not a company email" }]);
   const role: OrgRole = input.role ?? "member";
   if (!(role in RANK)) throw new AppError("VALIDATION", "Invalid role", 422);
   if (RANK[role] > RANK[actor.role] || (role !== "member" && RANK[actor.role] < RANK.admin))

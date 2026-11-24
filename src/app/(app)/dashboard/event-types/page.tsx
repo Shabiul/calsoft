@@ -5,6 +5,7 @@ import { Button, PageHeader, Skeleton } from "@/components/ui";
 import { requireUser } from "@/lib/auth-session";
 import { listEventTypes, listUserOrganizations } from "@/server/services/event-types";
 import { EventTypeList, type EventTypeListRow } from "@/components/event-types/event-type-list";
+import { isOrgAdmin } from "@/lib/org-roles";
 
 export const metadata = { title: "Event types" };
 
@@ -43,7 +44,7 @@ async function Content({ searchParams }: { searchParams: SP }) {
     archived: !!e.archivedAt, hostCount: e.hostCount, priceLabel: money(e.priceAmount, e.priceCurrency), publicPath: e.shortCode ? `/m/${e.shortCode}` : prefix ? `/${prefix}/${e.slug}` : null,
   }));
   const origin = process.env.APP_URL?.replace(/\/$/, "") ?? "";
-  const canCreate = !org || org.role !== "member";
+  const canCreate = !org || isOrgAdmin(org.role);
   const q = (o: { org?: string; archived?: boolean }) => {
     const p = new URLSearchParams();
     if (o.org) p.set("org", o.org);

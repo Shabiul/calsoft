@@ -9,7 +9,7 @@ export const instant = false;
 
 const NAV = [
   ["/admin", "Overview"], ["/admin/users", "Users"], ["/admin/organizations", "Organizations"], ["/admin/subscriptions", "Plans & subscriptions"],
-  ["/admin/bookings", "Booking stats"], ["/admin/health", "System health"], ["/admin/audit", "Audit log"], ["/admin/config", "Configuration"],
+  ["/admin/bookings", "Booking stats"], ["/admin/health", "System health"], ["/admin/sign-ins", "Sign-in activity"], ["/admin/audit", "Audit log"], ["/admin/config", "Configuration"],
 ] as const;
 
 async function Guard({ children }: { children: React.ReactNode }) {

@@ -4,6 +4,7 @@ import { db as defaultDb, schema, type Db } from "@/server/db";
 import { AppError } from "@/server/errors";
 import { assertFeature, assertWithinPlan, type PlanSubject } from "./plan-limits";
 import { newShortCode } from "./short-code";
+import { ROLE_RANK } from "@/lib/org-roles";
 import { eventTypeInputSchema, isTeamKind, slugify, type EventTypeInput } from "@/lib/validation/event-types";
 
 const { eventTypes, eventHosts, eventQuestions, bookingPageSettings, organizationMembers, availabilitySchedules, users } = schema;
@@ -17,7 +18,7 @@ export type EventTypeDetail = EventTypeRow & {
 export type EventTypeListItem = EventTypeRow & { hostCount: number };
 export type Actor = { userId: string };
 
-const ORG_ROLE_RANK = { member: 1, admin: 2, owner: 3 } as const;
+const ORG_ROLE_RANK = ROLE_RANK;
 
 function parse(input: unknown): EventTypeInput {
   const r = eventTypeInputSchema.safeParse(input);

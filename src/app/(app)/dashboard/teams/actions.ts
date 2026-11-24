@@ -9,9 +9,10 @@ import {
   revokeInvitation, setMemberPermissions, transferOwnership, updateOrganization,
 } from "@/server/services/organizations";
 import { reactivateMember, setMemberManager } from "@/server/services/bench";
+import { ORG_ROLES } from "@/lib/org-roles";
 
 const uuid = z.string().uuid();
-const role = z.enum(["owner", "admin", "member"]);
+const role = z.enum(ORG_ROLES);
 function parse<T>(schema: z.ZodType<T>, v: unknown): T {
   const r = schema.safeParse(v);
   if (!r.success) throw new AppError("VALIDATION", r.error.issues[0]?.message ?? "Invalid input", 422);

@@ -3,8 +3,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, toast } from "@/components/ui";
 import { checkOrgSlugAction, leaveOrganizationAction, updateOrganizationAction } from "@/app/(app)/dashboard/teams/actions";
+import { isOrgAdmin } from "@/lib/org-roles";
 
-type Role = "owner" | "admin" | "member";
+import type { OrgRole as Role } from "@/lib/org-roles";
 export type OrgView = { id: string; name: string; slug: string; logoUrl: string | null; brandColor: string | null };
 
 export function OrgSettingsForm({ org, role, canBrand, origin }: { org: OrgView; role: Role; canBrand: boolean; origin: string }) {
@@ -17,7 +18,7 @@ export function OrgSettingsForm({ org, role, canBrand, origin }: { org: OrgView;
   const [useColor, setUseColor] = useState(!!org.brandColor);
   const [slugMsg, setSlugMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const isAdmin = role !== "member";
+  const isAdmin = isOrgAdmin(role);
 
   const save = (e: React.FormEvent) => {
     e.preventDefault(); setError(null);

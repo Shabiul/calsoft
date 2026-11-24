@@ -10,7 +10,7 @@ import {
   changeRoleAction, leaveOrganizationAction, reactivateMemberAction, removeMemberAction, setManagerAction, setPermissionsAction, transferOwnershipAction,
 } from "@/app/(app)/dashboard/teams/actions";
 
-type Role = "owner" | "admin" | "member";
+import { ROLE_RANK as RANK, ROLE_LABELS, isOrgAdmin, type OrgRole as Role } from "@/lib/org-roles";
 export type MemberView = {
   userId: string; name: string; email: string; image: string | null; role: Role; permissions: string[]; joinedAt: string;
   status: string; lastActiveAt: string; managerUserId: string | null;
@@ -27,7 +27,6 @@ const PERMISSIONS = [
   { key: "branding.manage", label: "Edit organization branding" },
   { key: "event_types.manage", label: "Manage team event types" },
 ];
-const RANK: Record<Role, number> = { member: 1, admin: 2, owner: 3 };
 
 export function MembersPanel({ orgId, currentUserId, actorRole, members }: { orgId: string; currentUserId: string; actorRole: Role; members: MemberView[] }) {
   const router = useRouter();
@@ -61,9 +60,9 @@ export function MembersPanel({ orgId, currentUserId, actorRole, members }: { org
       <Card className="divide-y">
         {members.map((m) => {
           const me = m.userId === currentUserId;
-          const canRemove = !me && actorRole !== "member" && (actorRole === "owner" || RANK[m.role] < RANK[actorRole]);
-          const canPerms = actorRole !== "member" && m.role === "member";
-          const isAdmin = actorRole !== "member";
+          const canRemove = !me && isOrgAdmin(actorRole) && (actorRole === "owner" || RANK[m.role] < RANK[actorRole]);
+          const canPerms = isOrgAdmin(actorRole) && RANK[m.role] < RANK.admin;
+          const isAdmin = isOrgAdmin(actorRole);
           const canReactivate = !me && (isAdmin || m.managerUserId === currentUserId);
           const benched = m.status === "benched";
           const idle = idleDays(m.lastActiveAt);
@@ -78,8 +77,8 @@ export function MembersPanel({ orgId, currentUserId, actorRole, members }: { org
                   {benched && <Badge variant="destructive">Benched, meetings moved to manager</Badge>}
                   {!benched && idle >= WARN_DAYS && <Badge variant="warning">Inactive {idle} days</Badge>}
                   {isAdmin && !me ? (
-                    <label className="flex items-center gap-1">Manager
-                      <select aria-label={`Manager for ${m.name}`} value={m.managerUserId ?? ""} disabled={pending}
+                    <label className="flex items-center gap-1">Reports to
+                      <select aria-label={`Reports to, for ${m.name}`} value={m.managerUserId ?? ""} disabled={pending}
                         className="h-7 rounded-md border border-input bg-card px-1 text-xs"
                         onChange={(e) => run(() => setManagerAction(orgId, m.userId, e.target.value || null), "Manager updated")}>
                         <option value="">Team owners &amp; admins</option>
@@ -88,17 +87,19 @@ export function MembersPanel({ orgId, currentUserId, actorRole, members }: { org
                     </label>
                   ) : manager && <span>Manager: {manager.name}</span>}
                 </div>
-                {m.role === "member" && m.permissions.length > 0 && (
+                {RANK[m.role] < RANK.admin && m.permissions.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">{m.permissions.map((p) => <Badge key={p} variant="outline" className="text-[10px]">{PERMISSIONS.find((x) => x.key === p)?.label ?? p}</Badge>)}</div>
                 )}
               </div>
-              {actorRole === "owner" ? (
+              {isOrgAdmin(actorRole) && !me && (actorRole === "owner" || RANK[m.role] < RANK.admin) ? (
                 <select aria-label={`Role for ${m.name}`} value={m.role} disabled={pending}
-                  className="h-8 rounded-md border border-input bg-card px-2 text-sm capitalize"
+                  className="h-8 rounded-md border border-input bg-card px-2 text-sm"
                   onChange={(e) => run(() => changeRoleAction(orgId, m.userId, e.target.value), "Role updated")}>
-                  <option value="owner">Owner</option><option value="admin">Admin</option><option value="member">Member</option>
+                  {/* Owners can set any role; admins can set manager / team lead / member (the server enforces this too). */}
+                  {(actorRole === "owner" ? (["owner", "admin", "manager", "team_lead", "member"] as const) : (["manager", "team_lead", "member"] as const))
+                    .map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                 </select>
-              ) : <Badge variant={m.role === "owner" ? "default" : "secondary"} className="capitalize">{m.role}</Badge>}
+              ) : <Badge variant={m.role === "owner" ? "default" : "secondary"}>{ROLE_LABELS[m.role]}</Badge>}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${m.name}`}><MoreHorizontal /></Button></DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

@@ -100,7 +100,7 @@ describe("invitations", () => {
   it("cannot invite existing members; invalid emails rejected; outsiders forbidden", async () => {
     expect(await code(inviteMember(O, orgId, { email: emailOf(A) }))).toBe("CONFLICT");
     expect(await code(inviteMember(O, orgId, { email: "nope" }))).toBe("VALIDATION");
-    expect(await code(inviteMember(O, orgId, { email: "someone@outsider.test" }))).toBe("VALIDATION"); // not a company domain
+    expect(await code(inviteMember(O, orgId, { email: "someone@outsider.test" }))).toBeNull(); // any address can be invited: Google sign-in is open
     expect(await code(inviteMember(X, orgId, { email: "z@example.test" }))).toBe("FORBIDDEN");
   });
   it("admins cannot invite owners; plain members need the members.invite permission", async () => {

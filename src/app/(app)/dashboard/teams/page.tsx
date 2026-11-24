@@ -5,6 +5,7 @@ import { Avatar, Badge, Card, EmptyState, PageHeader, Skeleton } from "@/compone
 import { requireUser } from "@/lib/auth-session";
 import { listMyOrganizations } from "@/server/services/organizations";
 import { CreateOrgDialog } from "@/components/teams/create-org-dialog";
+import { roleLabel } from "@/lib/org-roles";
 
 export const metadata = { title: "Teams" };
 
@@ -36,7 +37,7 @@ async function Content() {
                 <div className="truncate font-medium">{o.name}</div>
                 <div className="truncate text-xs text-muted-foreground">/{o.slug} · {o.memberCount} member{o.memberCount === 1 ? "" : "s"}</div>
               </div>
-              <Badge variant={o.role === "owner" ? "default" : "secondary"} className="capitalize">{o.role}</Badge>
+              <Badge variant={o.role === "owner" ? "default" : "secondary"} >{roleLabel(o.role)}</Badge>
             </Card>
           </Link>
         </li>

@@ -7,6 +7,7 @@ import { getSession } from "@/lib/auth-session";
 import { APP_NAME } from "@/lib/brand";
 import { getInvitationPreview } from "@/server/services/organizations";
 import { AcceptInvite, SwitchAccount } from "./accept-invite";
+import { roleLabel } from "@/lib/org-roles";
 
 export const metadata: Metadata = { title: "Team invitation", robots: { index: false, follow: false } };
 // Depends on the signed-in session; always rendered per request.
@@ -44,7 +45,7 @@ async function Content({ params }: P) {
   }
   const session = await getSession();
   const next = encodeURIComponent(`/invite/${token}`);
-  const role = inv.role === "admin" ? "an admin" : `a ${inv.role}`;
+  const role = inv.role === "admin" ? "an admin" : `a ${roleLabel(String(inv.role ?? "member")).toLowerCase()}`;
   const intro = `${inv.inviterName ?? "A teammate"} invited ${inv.email} to join ${inv.orgName} as ${role}.`;
 
   if (!session) {
@@ -53,7 +54,7 @@ async function Content({ params }: P) {
         <CardHeader><CardTitle className="text-xl">Join {inv.orgName}</CardTitle><CardDescription>{intro}</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            {`Sign in with the company Zoho account ${inv.email} to accept.`}
+            {`Sign in with Google or your company Zoho account using ${inv.email} to accept.`}
           </p>
           <div className="flex flex-col gap-2">
             <Link href={`/login?next=${next}`} className="inline-flex h-9 items-center justify-center rounded-md bg-brand px-4 text-sm font-medium text-brand-foreground hover:opacity-90">

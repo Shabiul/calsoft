@@ -92,6 +92,20 @@
       "when": 1795441090191,
       "tag": "0012_meeting_context",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795501464641,
+      "tag": "0013_roles_signin_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795504671310,
+      "tag": "0014_signin_log_event",
+      "breakpoints": true
     }
   ]
 }

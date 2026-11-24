@@ -3,24 +3,33 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { genericOAuth } from "better-auth/plugins";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { supabaseSignIn } from "./supabase-plugin";
+import { supabaseLoginEnabled } from "@/server/services/supabase-auth";
 import { db, schema } from "@/server/db";
 import { APP_NAME } from "./brand";
-import { isCompanyEmail } from "./company-email";
+import { accountMayUseApp, ensureSuperadmin } from "@/server/services/account-access";
+import { zohoProfileToUser, type ZohoProfile } from "./zoho-profile";
+import { describeDevice, providerFromContext } from "./sign-in-info";
 import { zohoHost } from "@/server/integrations/config";
 import { checkUsername, claimFreeUsername } from "@/server/services/username";
 import { slugifyUsername, validateUsername } from "./username";
 
 const baseURL = process.env.BETTER_AUTH_URL || process.env.APP_URL || "http://localhost:3000";
 /**
- * Sign-in is ONLY "Continue with Zoho" with a company email (ALLOWED_EMAIL_DOMAINS). There is no sign-up form and no password
- * login: an employee's first Zoho sign-in creates their account; anyone else is refused. Existing accounts are linked by email.
- * Zoho redirect URI to register: <APP_URL>/api/auth/callback/zoho (same Zoho client as the calendar integration).
+ * Two ways in, no passwords:
+ *  - "Continue with Google": any Google account (creates the account on first sign-in).
+ *  - "Continue with Zoho": company accounts only (ALLOWED_EMAIL_DOMAINS), creates the account on first sign-in; anyone else is refused.
+ * Redirect URIs to register: <APP_URL>/api/auth/callback/google and <APP_URL>/api/auth/callback/zoho (same Zoho client as the calendar integration).
  */
+const google = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+  ? { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET } : null;
+export const googleLoginEnabled = Boolean(google);
 const zohoClient = process.env.ZOHO_CLIENT_ID && process.env.ZOHO_CLIENT_SECRET
   ? { clientId: process.env.ZOHO_CLIENT_ID, clientSecret: process.env.ZOHO_CLIENT_SECRET } : null;
 export const zohoLoginEnabled = Boolean(zohoClient);
-const NOT_COMPANY = "Only company Zoho accounts can sign in. Use your work email.";
+export const supabaseSignInEnabled = supabaseLoginEnabled();
+const NOT_ALLOWED = "This account cannot sign in. Use Google, or your company Zoho account.";
 
 export const auth = betterAuth({
   appName: APP_NAME,
@@ -35,8 +44,9 @@ export const auth = betterAuth({
       verification: schema.verifications, twoFactor: schema.twoFactors,
     },
   }),
-  emailAndPassword: { enabled: false }, // no password sign-up / sign-in / reset: Zoho only
-  account: { accountLinking: { enabled: true, trustedProviders: ["zoho"] } },
+  emailAndPassword: { enabled: false }, // no password sign-up / sign-in / reset
+  socialProviders: google ? { google } : {},
+  account: { accountLinking: { enabled: true, trustedProviders: ["google", "zoho"] } },
   user: {
     additionalFields: {
       username: { type: "string", required: false, input: true },
@@ -56,7 +66,7 @@ export const auth = betterAuth({
     user: {
       create: {
         before: async (user) => {
-          if (!isCompanyEmail(user.email)) throw new APIError("FORBIDDEN", { message: NOT_COMPANY });
+          // No domain rule here: Zoho accounts are restricted to company domains in getUserInfo (before any user is created) and Google is open.
           const raw = (user as { username?: string | null }).username;
           let username: string;
           if (raw) {
@@ -94,12 +104,36 @@ export const auth = betterAuth({
           if (!u || u.deletedAt || u.status === "suspended") {
             throw new APIError("FORBIDDEN", { message: "This account is disabled." });
           }
-          // Every sign-in, not only the first: an account whose email is (no longer) on a company domain is refused.
-          // Platform superadmins are exempt so the operator cannot be locked out by a domain change.
-          if (u.role !== "superadmin" && !isCompanyEmail(u.email)) throw new APIError("FORBIDDEN", { message: NOT_COMPANY });
+          // Every sign-in, not only the first: a Zoho-only account whose email is (no longer) on a company domain is refused.
+          // Google accounts and platform superadmins are exempt (see accountMayUseApp).
+          const role = await ensureSuperadmin(session.userId, u.email, u.role); // SUPERADMIN_EMAILS
+          if (!(await accountMayUseApp(session.userId, u.email, role))) throw new APIError("FORBIDDEN", { message: NOT_ALLOWED });
+        },
+        // Durable sign-in history for managers (the session table loses rows on sign-out). Never blocks a sign-in.
+        after: async (session, context) => {
+          try {
+            await db.insert(schema.signInLogs).values({
+              userId: session.userId, provider: providerFromContext(context as never),
+              device: describeDevice((session as { userAgent?: string | null }).userAgent),
+            });
+          } catch (err) {
+            console.error("[auth] sign-in log failed:", (err as Error).message);
+          }
         },
       },
     },
+  },
+  hooks: {
+    // Sign-outs go in the same durable log as sign-ins.
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-out") return;
+      try {
+        const s = await getSessionFromCtx(ctx);
+        if (s?.user) await db.insert(schema.signInLogs).values({ userId: s.user.id, event: "sign_out", provider: null, device: describeDevice(ctx.headers?.get("user-agent")) });
+      } catch (err) {
+        console.error("[auth] sign-out log failed:", (err as Error).message);
+      }
+    }),
   },
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   rateLimit: {
@@ -108,6 +142,10 @@ export const auth = betterAuth({
     max: 120,
     customRules: {
       "/sign-in/social": { window: 60, max: 20 },
+      "/supabase/send": { window: 60, max: 6 },
+      "/supabase/verify": { window: 60, max: 10 },
+      "/supabase/password": { window: 60, max: 10 },
+      "/supabase/signup": { window: 60, max: 5 },
     },
   },
   plugins: [
@@ -125,14 +163,11 @@ export const auth = betterAuth({
         getUserInfo: async (tokens) => {
           const r = await fetch(`${zohoHost("accounts")}/oauth/user/info`, { headers: { Authorization: `Zoho-oauthtoken ${tokens.accessToken}` } });
           if (!r.ok) return null;
-          const p = (await r.json()) as { ZUID?: string | number; Email?: string; Display_Name?: string; First_Name?: string; Last_Name?: string };
-          if (p.ZUID == null || !p.Email) return null;
-          const name = p.Display_Name || [p.First_Name, p.Last_Name].filter(Boolean).join(" ") || p.Email.split("@")[0]!;
-          // Zoho only lets an address onto an account after verifying it (or the org admin created the mailbox).
-          return { id: String(p.ZUID), email: p.Email.toLowerCase(), name, emailVerified: true };
+          return zohoProfileToUser((await r.json()) as ZohoProfile); // null (refused) for non-company addresses
         },
       }],
     })] : []),
+    supabaseSignIn(),
     nextCookies(),
   ],
 });

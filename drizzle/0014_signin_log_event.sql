@@ -1,0 +1,1 @@
+ALTER TABLE "sign_in_log" ADD COLUMN "event" text DEFAULT 'sign_in' NOT NULL;

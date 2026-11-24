@@ -19,7 +19,8 @@ const tstz = (n: string) => timestamp(n, { withTimezone: true });
 export const tstzrange = customType<{ data: string }>({ dataType: () => "tstzrange" });
 
 // ───────── enums
-export const orgRole = pgEnum("org_role", ["owner", "admin", "member"]);
+/** owner > admin > manager > team_lead > member. Managers and team leads can view their organization's sign-ins, meetings and schedules (read-only). */
+export const orgRole = pgEnum("org_role", ["owner", "admin", "member", "manager", "team_lead"]);
 export const platformRole = pgEnum("platform_role", ["user", "superadmin"]);
 export const eventKind = pgEnum("event_kind", ["one_on_one", "group", "collective", "round_robin"]);
 export const locationType = pgEnum("location_type", ["google_meet", "zoom", "teams", "custom_url", "in_person", "phone", "invitee_phone", "zoho_meeting"]);
@@ -408,6 +409,12 @@ export const pageViews = pgTable("page_view", {
   id: id(), eventTypeId: uuid("event_type_id").references(() => eventTypes.id, { onDelete: "cascade" }),
   userId: text("user_id"), createdAt: createdAt(),
 }, (t) => [index("pv_event_idx").on(t.eventTypeId, t.createdAt)]);
+/** Durable sign-in and sign-out history, event = "sign_in" | "sign_out" (the session table loses rows on sign-out). No IP address is kept: only when, how and from which browser. */
+export const signInLogs = pgTable("sign_in_log", {
+  id: id(), userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider"), device: text("device"), event: text("event").notNull().default("sign_in"), createdAt: createdAt(),
+}, (t) => [index("sign_in_log_user_idx").on(t.userId, t.createdAt)]);
+
 export const auditLogs = pgTable("audit_log", {
   id: id(), actorId: text("actor_id"), organizationId: uuid("organization_id"), action: text("action").notNull(),
   entity: text("entity"), entityId: text("entity_id"), meta: jsonb("meta").$type<Record<string, unknown>>(), ip: text("ip"), createdAt: createdAt(),
