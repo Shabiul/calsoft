@@ -17,6 +17,7 @@ const tstz = (n: string) => timestamp(n, { withTimezone: true });
 
 /** Raw tstzrange column, maintained by DB trigger/generated expression in 0001_constraints.sql */
 export const tstzrange = customType<{ data: string }>({ dataType: () => "tstzrange" });
+export const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 // ───────── enums
 /** owner > admin > manager > team_lead > member. Managers and team leads can view their organization's sign-ins, meetings and schedules (read-only). */
@@ -346,6 +347,12 @@ export const workflowSteps = pgTable("workflow_step", {
   position: integer("position").notNull(), action: text("action").notNull(), offsetMinutes: integer("offset_minutes").notNull().default(0),
   config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
 });
+/** Files a workflow email step attaches (PDFs, images, documents). Stored in the database so the worker can read them wherever it runs. */
+export const workflowAttachments = pgTable("workflow_attachment", {
+  id: id(), ownerUserId: text("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), contentType: text("content_type").notNull(), size: integer("size").notNull(), data: bytea("data").notNull(),
+  createdAt: createdAt(),
+}, (t) => [index("workflow_attachment_owner_idx").on(t.ownerUserId, t.createdAt)]);
 export const workflowExecutions = pgTable("workflow_execution", {
   id: id(), workflowId: uuid("workflow_id").notNull().references(() => workflows.id, { onDelete: "cascade" }),
   stepId: uuid("step_id").references(() => workflowSteps.id, { onDelete: "set null" }),

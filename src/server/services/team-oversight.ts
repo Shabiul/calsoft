@@ -26,7 +26,7 @@ export async function listOversightOrgs(userId: string, db: Db = defaultDb): Pro
   return rows.filter((r) => canOversee(r.role)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function requireOversight(viewerId: string, orgId: string, db: Db): Promise<{ role: OrgRole; orgName: string }> {
+export async function requireOversight(viewerId: string, orgId: string, db: Db): Promise<{ role: OrgRole; orgName: string }> {
   if (!isUuid(orgId)) throw new AppError("NOT_FOUND", "Team not found", 404);
   const [m] = await db.select({ role: organizationMembers.role, orgName: organizations.name })
     .from(organizationMembers).innerJoin(organizations, eq(organizations.id, organizationMembers.organizationId))

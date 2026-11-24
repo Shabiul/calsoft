@@ -5,6 +5,7 @@ export interface StepState {
   offsetMinutes: number;
   to: "invitee" | "host" | "both";
   subject: string; body: string; /** attach the calendar invite (.ics) to the email */ attachIcs: boolean;
+  /** uploaded files attached to the email */ attachments: { id: string; name: string; size: number }[];
   url: string; secret: string; secretEnc?: string; hasSecret?: boolean;
 }
 export interface WorkflowFormValue {
@@ -13,7 +14,7 @@ export interface WorkflowFormValue {
 /** A new step starts from the confirmation sample (message, timing and calendar-invite attachment), all editable. */
 export const blankStep = (): StepState => {
   const c = WORKFLOW_SAMPLES[0]!;
-  return { action: "send_email", offsetMinutes: c.offsetMinutes, to: c.to, subject: c.subject, body: c.body, attachIcs: c.attachIcs, url: "", secret: "" };
+  return { action: "send_email", offsetMinutes: c.offsetMinutes, to: c.to, subject: c.subject, body: c.body, attachIcs: c.attachIcs, attachments: [], url: "", secret: "" };
 };
 export const emptyWorkflow = (): WorkflowFormValue => ({ name: "", trigger: "booking_created", eventTypeIds: [], isActive: true, steps: [blankStep()] });
 

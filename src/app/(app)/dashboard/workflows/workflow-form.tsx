@@ -44,7 +44,7 @@ export function WorkflowForm({ initial, eventTypes }: { initial: WorkflowFormVal
     const payload = {
       name: v.name, trigger: v.trigger, isActive: v.isActive, eventTypeIds: v.eventTypeIds.length ? v.eventTypeIds : null,
       steps: v.steps.map((s) => s.action === "send_email"
-        ? { action: s.action, offsetMinutes: s.offsetMinutes, to: s.to, subject: s.subject, body: s.body, attachIcs: s.attachIcs }
+        ? { action: s.action, offsetMinutes: s.offsetMinutes, to: s.to, subject: s.subject, body: s.body, attachIcs: s.attachIcs, attachmentIds: s.attachments.map((a) => a.id) }
         : { action: s.action, offsetMinutes: s.offsetMinutes, url: s.url, ...(s.secret ? { secret: s.secret } : s.secretEnc ? { secretEnc: s.secretEnc } : {}) }),
     };
     start(async () => {
@@ -161,6 +161,30 @@ export function WorkflowForm({ initial, eventTypes }: { initial: WorkflowFormVal
                     </span>
                   </span>
                 </label>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`file-${i}`}>Attach files (optional)</Label>
+                  <ul className="space-y-1 text-sm">
+                    {s.attachments.map((a) => (
+                      <li key={a.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
+                        <span className="min-w-0 truncate">{a.name} <span className="text-xs text-muted-foreground">({(a.size / 1024).toFixed(a.size < 10240 ? 1 : 0)} KB)</span></span>
+                        <button type="button" className="text-xs underline" onClick={() => setStep(i, { attachments: s.attachments.filter((x) => x.id !== a.id) })}>Remove</button>
+                      </li>
+                    ))}
+                  </ul>
+                  {s.attachments.length < 3 && (
+                    <input id={`file-${i}`} type="file" className="block w-full text-sm" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.docx,.xlsx,.pptx"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]; e.target.value = "";
+                        if (!file) return;
+                        const fd = new FormData(); fd.append("file", file);
+                        const r = await fetch("/api/files/workflow-attachments", { method: "POST", body: fd });
+                        const j = (await r.json().catch(() => ({}))) as { id?: string; name?: string; size?: number; message?: string };
+                        if (!r.ok || !j.id) { toast.error(j.message ?? "Upload failed"); return; }
+                        setStep(i, { attachments: [...s.attachments, { id: j.id, name: j.name ?? file.name, size: j.size ?? file.size }] });
+                      }} />
+                  )}
+                  <p className="text-xs text-muted-foreground">Up to 3 files, 5 MB each (8 MB total): PDF, images, TXT, CSV, Word, Excel or PowerPoint. Sent to everyone this step emails.</p>
+                </div>
               </>
             ) : (
               <>

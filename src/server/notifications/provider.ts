@@ -3,7 +3,7 @@ import { Resend } from "resend";
 
 export interface EmailMessage {
   to: string; subject: string; html: string; text: string;
-  attachments?: { filename: string; content: string; contentType: string }[];
+  attachments?: { filename: string; content: string; contentType: string; /** "base64" for binary files; text (e.g. .ics) otherwise */ encoding?: "base64" }[];
 }
 export interface EmailProvider { name: string; send(msg: EmailMessage): Promise<{ id?: string }> }
 
@@ -27,7 +27,7 @@ function resendProvider(key: string): EmailProvider {
     async send(m) {
       const { data, error } = await client.emails.send({
         from: from(), to: m.to, subject: m.subject, html: m.html, text: m.text,
-        attachments: m.attachments?.map((a) => ({ filename: a.filename, content: Buffer.from(a.content, "utf8"), contentType: a.contentType })),
+        attachments: m.attachments?.map((a) => ({ filename: a.filename, content: Buffer.from(a.content, a.encoding ?? "utf8"), contentType: a.contentType })),
       });
       if (error) throw new Error(`Resend: ${error.message}`);
       return { id: data?.id };
@@ -41,7 +41,7 @@ function smtpProvider(url: string): EmailProvider {
     async send(m) {
       const r = await t.sendMail({
         from: from(), to: m.to, subject: m.subject, html: m.html, text: m.text,
-        attachments: m.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
+        attachments: m.attachments?.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType, encoding: a.encoding })),
       });
       return { id: r.messageId };
     },

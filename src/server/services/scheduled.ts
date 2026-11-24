@@ -60,7 +60,9 @@ function where(userId: string, f: ScheduledFilters, now: Date): SQL {
   if (q) {
     const like = `%${escLike(q)}%`;
     parts.push(sql`(exists (select 1 from invitee i where i.booking_id = ${B.id} and (i.name ilike ${like} or i.email ilike ${like}))
-      or exists (select 1 from event_type et where et.id = ${B.eventTypeId} and et.title ilike ${like}))`);
+      or exists (select 1 from event_type et where et.id = ${B.eventTypeId} and et.title ilike ${like})
+      or (${B.hostUserId} = ${userId} and exists (select 1 from meeting_note n where n.booking_id = ${B.id}
+        and (n.summary ilike ${like} or n.content ilike ${like} or n.transcript ilike ${like}))))`);
   }
   return and(...parts)!;
 }

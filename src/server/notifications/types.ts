@@ -45,9 +45,11 @@ export interface RenderExtra {
   subject?: string; body?: string;
   /** workflow: attach the calendar invite (.ics) for the invitee. */
   attachIcs?: boolean;
+  /** workflow: uploaded files (workflow_attachment ids) to attach to every recipient's email. */
+  attachmentIds?: string[];
 }
 export type Role = "invitee" | "host";
 export interface RenderedEmail {
   subject: string; html: string; text: string;
-  attachments?: { filename: string; content: string; contentType: string }[];
+  attachments?: { filename: string; content: string; contentType: string; encoding?: "base64" }[];
 }

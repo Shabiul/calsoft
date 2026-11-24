@@ -75,6 +75,15 @@ describe("scheduled events", () => {
     expect((await countScheduled(A, {})).upcoming).toBeGreaterThanOrEqual(1);
   });
 
+  it("search also finds meetings by what is in the host's own private notes, and never by someone else's", async () => {
+    const word = `budgetwalrus${run}`;
+    await db.insert(schema.meetingNotes).values({ bookingId: soloBooking, content: "", summary: `We agreed the ${word} plan.` });
+    expect((await listScheduled(A, { q: word })).rows.map((x) => x.id)).toEqual([soloBooking]);
+    expect((await listScheduled(B, { q: word })).total).toBe(0);
+    expect((await listScheduled(ADMIN, { q: word })).total).toBe(0);
+    await db.delete(schema.meetingNotes).where(eq(schema.meetingNotes.bookingId, soloBooking));
+  });
+
   it("shows a collective booking once (hides linked rows) to every host and to org admins only", async () => {
     const s = await slots(coll);
     const r = await createBooking({ eventTypeId: coll, startsAt: s[5].startsAt, invitee: inv("coll") });

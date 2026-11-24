@@ -7,6 +7,7 @@ import { decrypt } from "@/lib/crypto";
 import { enqueue, MAX_ATTEMPTS, QUEUES, type EventJobData } from "@/server/queue";
 import { loadBookingContext } from "@/server/notifications/context";
 import { postJson } from "./http";
+import { buildChatBody, detectChatTarget } from "./chat";
 import { signPayload } from "./signing";
 import { SsrfError } from "./ssrf";
 
@@ -74,11 +75,12 @@ export async function processDelivery(deliveryId: string, opts: { attemptsMade: 
     await db.update(webhookDeliveries).set({ status: "dead", error: "endpoint disabled" }).where(eq(webhookDeliveries.id, deliveryId));
     return "skipped";
   }
-  const body = JSON.stringify(row.d.payload);
+  const chat = detectChatTarget(row.e.url);
+  const body = chat ? buildChatBody(chat, row.d.event, row.d.payload) : JSON.stringify(row.d.payload);
   try {
-    const secret = decrypt(row.e.secret);
-    const signed = signPayload(secret, body);
-    const res = await postJson(row.e.url, body, { ...signed.headers, "MeetFlow-Event": row.d.event, "MeetFlow-Delivery": row.d.id });
+    // Slack and Teams only accept their own message format: they get a chat message and no signature.
+    const headers = chat ? {} : { ...signPayload(decrypt(row.e.secret), body).headers, "MeetFlow-Event": row.d.event, "MeetFlow-Delivery": row.d.id };
+    const res = await postJson(row.e.url, body, headers);
     if (res.status >= 200 && res.status < 300) {
       await db.update(webhookDeliveries).set({ status: "sent", attempts: opts.attemptsMade + 1, responseCode: res.status, error: null, deliveredAt: new Date() })
         .where(eq(webhookDeliveries.id, deliveryId));

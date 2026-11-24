@@ -1,0 +1,27 @@
+name: Uptime check
+
+# Pings the live app every 10 minutes. A failed run emails the repository owner (GitHub's default for failed workflows).
+# It checks the website, Postgres, Redis and that the background worker's heartbeat is fresh.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check readiness and worker
+        env:
+          URL: ${{ vars.UPTIME_URL || 'https://calendly.zestboxes.com' }}
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            code=$(curl -s -o body.json -w '%{http_code}' --max-time 20 "$URL/api/health?ready=1&worker=1" || true)
+            if [ "$code" = "200" ]; then cat body.json; echo; exit 0; fi
+            echo "attempt $i: HTTP $code"; cat body.json 2>/dev/null || true; echo
+            sleep 20
+          done
+          echo "::error::$URL is unhealthy"
+          exit 1

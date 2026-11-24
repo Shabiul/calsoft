@@ -43,5 +43,19 @@ postgresql://postgres.<project-ref>:<db-password>@aws-0-ap-southeast-1.pooler.su
 - Run migrations (`npm run db:migrate`) and `pg_dump`/`psql` through the **session pooler** (same host, port 5432), not 6543.
 - The app only uses transaction-scoped advisory locks (`pg_advisory_xact_lock`), so it is safe behind the transaction pooler. Do not add session-level locks, `LISTEN`, or named prepared statements.
 - `drizzle/constraints.sql` revokes all privileges on the `public` schema from Supabase's `anon` / `authenticated` roles (its REST API is otherwise reachable with the publishable key). The app connects as the table owner and needs neither. The block is a no-op on non-Supabase databases.
-- Supabase's own keys (`SUPABASE_*`) are not used by the app: it uses its own auth tables, not Supabase Auth.
+- `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` turn on **Supabase Auth sign-in** (emailed code, password, magic link) on the login page. Supabase only proves who the person is; MeetFlow keeps its own sessions and users. The secret key is not used by the app.
 - Text collation on Supabase is `en_US.UTF-8` (previously `C.UTF-8`): lists sort alphabetically rather than by character code.
+
+## Sign-in, admins and alerts
+
+| Variable | Purpose |
+| --- | --- |
+| `ALLOWED_EMAIL_DOMAINS` | Comma-separated company domains. Zoho and Supabase (email) sign-in accept only these (plus superadmins). Google is open. |
+| `SUPERADMIN_EMAILS` | Comma-separated emails that become platform superadmins at their next sign-in (full `/admin` access). Only verified emails count. |
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | Enable Supabase Auth sign-in. In the Supabase dashboard: enable the Email provider (keep "Confirm email" on), put `{{ .Token }}` in the Magic Link and Confirm signup templates, add `<APP_URL>/auth/supabase` to the redirect URLs, and set up custom SMTP (the built-in sender allows only a few emails an hour). |
+| `ALERT_EMAILS` | Who gets operational alerts (failing emails, late reminders, stuck queue). Falls back to `SUPERADMIN_EMAILS`. At most one alert per hour. |
+
+### Uptime and backups
+
+- `.github/workflows/uptime.yml` calls `/api/health?ready=1&worker=1` every 10 minutes (website, Postgres, Redis, worker heartbeat). A failure emails the repository owner. Set the repository variable `UPTIME_URL` to monitor another address.
+- `scripts/backup.sh` writes a compressed `pg_dump` with 14-day rotation and checks that the archive lists the booking table. Run it daily from cron on the worker host using the **session pooler** URL, and set `BACKUP_RCLONE_REMOTE` to copy the file off the machine.

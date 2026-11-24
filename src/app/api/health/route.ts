@@ -44,6 +44,12 @@ export async function GET(req: NextRequest) {
     await withTimeout(redis.connect());
     await withTimeout(redis.ping());
     checks.redis = "ok";
+    // ?worker=1 also requires the background worker to be alive (it refreshes a heartbeat in Redis every few seconds).
+    if (req.nextUrl.searchParams.get("worker") === "1") {
+      const { queuePrefix } = await import("@/server/queue");
+      const beat = await withTimeout((redis as unknown as { get(k: string): Promise<string | null> }).get(`${queuePrefix()}:worker:heartbeat`));
+      checks.worker = beat ? "ok" : "stale";
+    }
   } catch (e) {
     checks.redis = e instanceof Error && e.message === "timeout" ? "timeout" : "unavailable";
   } finally {

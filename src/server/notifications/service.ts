@@ -10,6 +10,7 @@ import { loadBookingContext } from "./context";
 import { meetLinkExpected } from "@/server/integrations/meet-pending";
 import { getEmailProvider } from "./provider";
 import { renderNotification } from "./templates";
+import { loadEmailAttachments } from "@/server/storage/workflow-files";
 import type { NotificationKind, RenderExtra, Role } from "./types";
 
 export interface QueueNotificationInput {
@@ -83,6 +84,7 @@ export async function processNotification(data: NotificationJobData, opts: { att
       if (Number.isFinite(m)) extra.minutesBefore = m;
     }
     const mail = renderNotification(kind, ctx, role, extra);
+    if (kind === "workflow" && extra.attachmentIds?.length) mail.attachments = [...(mail.attachments ?? []), ...(await loadEmailAttachments(extra.attachmentIds))];
     await getEmailProvider().send({ to: log.recipient, ...mail });
     await db.update(notificationLogs)
       .set({ status: "sent", sentAt: new Date(), attempts: opts.attemptsMade + 1, error: null })

@@ -5,6 +5,7 @@ import { eventTypes, workflowExecutions, workflows, workflowSteps } from "@/serv
 import { encrypt } from "@/lib/crypto";
 import { AppError } from "@/server/errors";
 import { WORKFLOW_ACTIONS, WORKFLOW_TRIGGERS } from "@/server/webhooks/events";
+import { assertStepFiles, listOwnedFiles, MAX_FILES_PER_STEP } from "@/server/storage/workflow-files";
 import { assertUrlAllowed, SsrfError } from "@/server/webhooks/ssrf";
 
 export const workflowStepSchema = z.object({
@@ -16,6 +17,8 @@ export const workflowStepSchema = z.object({
   body: z.string().max(5000).optional(),
   /** Attach the calendar invite (.ics) to the email (a cancellation invite for cancelled bookings). */
   attachIcs: z.boolean().optional(),
+  /** Uploaded files (workflow_attachment ids) attached to the email. */
+  attachmentIds: z.array(z.string().uuid()).max(MAX_FILES_PER_STEP).optional(),
   url: z.string().max(2000).optional(),
   secret: z.string().max(200).optional(),
   /** kept when editing an existing webhook step without re-entering the secret */
@@ -36,7 +39,7 @@ export const workflowInputSchema = z.object({
 export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 function stepConfig(s: z.infer<typeof workflowStepSchema>): Record<string, unknown> {
-  if (s.action === "send_email") return { to: s.to ?? "invitee", subject: s.subject, body: s.body, attachIcs: s.attachIcs === true };
+  if (s.action === "send_email") return { to: s.to ?? "invitee", subject: s.subject, body: s.body, attachIcs: s.attachIcs === true, attachmentIds: [...new Set(s.attachmentIds ?? [])] };
   try { assertUrlAllowed(s.url!); } catch (e) { if (e instanceof SsrfError) throw new AppError("VALIDATION", e.message, 422); throw e; }
   const cfg: Record<string, unknown> = { url: s.url };
   if (s.secret) cfg.secretEnc = encrypt(s.secret);
@@ -53,6 +56,7 @@ async function assertEventTypesOwned(userId: string, ids: string[] | null | unde
 export async function createWorkflow(userId: string, raw: unknown) {
   const input = workflowInputSchema.parse(raw);
   await assertEventTypesOwned(userId, input.eventTypeIds);
+  for (const st of input.steps) await assertStepFiles(userId, st.attachmentIds);
   return db.transaction(async (tx) => {
     const [wf] = await tx.insert(workflows).values({
       ownerUserId: userId, name: input.name, trigger: input.trigger,
@@ -69,6 +73,7 @@ export async function updateWorkflow(userId: string, id: string, raw: unknown) {
   const input = workflowInputSchema.parse(raw);
   await getOwned(userId, id);
   await assertEventTypesOwned(userId, input.eventTypeIds);
+  for (const st of input.steps) await assertStepFiles(userId, st.attachmentIds);
   await db.transaction(async (tx) => {
     await tx.update(workflows).set({
       name: input.name, trigger: input.trigger, eventTypeIds: input.eventTypeIds?.length ? input.eventTypeIds : null,
@@ -115,11 +120,14 @@ export async function listWorkflows(userId: string) {
 export async function getWorkflowForEdit(userId: string, id: string) {
   const wf = await getOwned(userId, id);
   const steps = await db.select().from(workflowSteps).where(eq(workflowSteps.workflowId, id)).orderBy(workflowSteps.position);
+  const allIds = steps.flatMap((s) => ((s.config as { attachmentIds?: string[] }).attachmentIds ?? []));
+  const files = await listOwnedFiles(userId, allIds);
   return {
     id: wf.id, name: wf.name, trigger: wf.trigger, eventTypeIds: wf.eventTypeIds ?? [], isActive: wf.isActive,
     steps: steps.map((s) => {
       const c = s.config as Record<string, string | boolean | undefined>;
-      return { action: s.action, offsetMinutes: s.offsetMinutes, to: c.to as string | undefined, subject: c.subject as string | undefined, body: c.body as string | undefined, attachIcs: c.attachIcs === true, url: c.url as string | undefined, secretEnc: c.secretEnc as string | undefined, hasSecret: !!c.secretEnc };
+      const attachments = ((s.config as { attachmentIds?: string[] }).attachmentIds ?? []).map((id) => files.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f);
+      return { attachments, action: s.action, offsetMinutes: s.offsetMinutes, to: c.to as string | undefined, subject: c.subject as string | undefined, body: c.body as string | undefined, attachIcs: c.attachIcs === true, url: c.url as string | undefined, secretEnc: c.secretEnc as string | undefined, hasSecret: !!c.secretEnc };
     }),
   };
 }

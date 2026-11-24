@@ -1,5 +1,5 @@
 import type { Job } from "bullmq";
-import { emitEvent, enqueue, MAX_ATTEMPTS, QUEUES, type EventJobData } from "@/server/queue";
+import { emitEvent, enqueue, getConnection, MAX_ATTEMPTS, QUEUES, queuePrefix, type EventJobData } from "@/server/queue";
 import { handleNotificationEvent } from "@/server/notifications/events";
 import { processNotification, requeueStaleNotifications, type NotificationJobData } from "@/server/notifications/service";
 import { expirePendingHolds, expireUnansweredRequests, processDueReminders } from "@/server/notifications/reminders";
@@ -10,6 +10,7 @@ import { INTEGRATION_JOB, processIntegrationJob } from "@/server/integrations/bo
 import { syncAllDue } from "@/server/integrations/sync";
 import { collectNotes, NOTETAKER_COLLECT_JOB } from "@/server/notetaker";
 import { benchSweep } from "@/server/services/bench";
+import { runOpsCheck } from "@/server/ops/alerts";
 import { NOTES_AUDIO_JOB, processAudioNotes, type AudioJob } from "@/server/notetaker/audio";
 import { reconcilePayments, refundForCancelledBooking } from "@/server/payments/service";
 
@@ -65,6 +66,7 @@ export const SCHEDULER_JOBS = {
   calendarSync: { id: "calendar-sync", everyMs: 10 * 60_000 },
   paymentsReconcile: { id: "payments-reconcile", everyMs: 5 * 60_000 },
   benchSweep: { id: "bench-sweep", everyMs: 6 * 3600_000 },
+  opsCheck: { id: "ops-check", everyMs: 5 * 60_000 },
 } as const;
 
 export async function processScheduler(job: Job) {
@@ -82,6 +84,7 @@ export async function processScheduler(job: Job) {
     case SCHEDULER_JOBS.calendarSync.id: return syncAllDue();
     case SCHEDULER_JOBS.paymentsReconcile.id: return reconcilePayments();
     case SCHEDULER_JOBS.benchSweep.id: return benchSweep();
+    case SCHEDULER_JOBS.opsCheck.id: return runOpsCheck(async (key, ttl) => (await getConnection().set(`${queuePrefix()}:${key}`, "1", "EX", ttl, "NX")) === "OK");
     case PAYMENT_REFUND_JOB: return refundForCancelledBooking((job.data as { bookingId: string }).bookingId);
     case NOTETAKER_COLLECT_JOB: return collectNotes(job.data as { bookingId: string; botId: string }, attemptInfo(job));
     case INTEGRATION_JOB: return processIntegrationJob(job.data as { bookingId: string; attempt?: number });
